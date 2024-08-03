@@ -31,6 +31,7 @@ func createCacheDir() error {
 
 func getVpnListCache() (*[]Server, error) {
 	cacheFile := path.Join(getCacheDir(), serverCachefile)
+	
 	serversFile, err := os.Open(cacheFile)
 	if err != nil {
 		return nil, err
@@ -78,5 +79,5 @@ func vpnListCacheIsExpired() bool {
 
 	lastModified := file.ModTime()
 
-	return (time.Since(lastModified)) > time.Duration(24*time.Hour)
+	return (time.Since(lastModified)) > time.Duration(8*time.Hour)
 }

@@ -33,6 +33,10 @@ func Run(path string, workDir string, args ...string) error {
 
 	for scanner.Scan() {
 		log.Debug().Msg(scanner.Text())
+		if strings.Contains(scanner.Text(), "Initialization Sequence Completed") {
+			// 说明成功建立连接
+			return nil
+		}
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -40,8 +44,10 @@ func Run(path string, workDir string, args ...string) error {
 	}
 
 	if err := cmd.Wait(); err != nil {
-		log.Fatal().Msgf("Command finished with error: %v", err)
+		log.Error().Msgf("Command finished with error: %v", err)
 		return err
 	}
+
 	return nil
 }
+

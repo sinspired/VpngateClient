@@ -109,11 +109,29 @@ func GetList(httpProxy string, socks5Proxy string) (*[]Server, error) {
 		}
 	} else {
 		client = &http.Client{}
+		var err error
+		_, err = client.Get(vpnList)
+		if err != nil {
+			log.Warn().Msg("下载出错，添加默认代理尝试")
+			httpProxy := "http://localhost:10809"
+			proxyURL, err := url.Parse(httpProxy)
+			if err != nil {
+				log.Error().Msgf("Error parsing proxy: %s", err)
+				os.Exit(1)
+			}
+			transport := &http.Transport{
+				Proxy: http.ProxyURL(proxyURL),
+			}
+
+			client = &http.Client{
+				Transport: transport,
+			}
+		}
 	}
 
 	var r *http.Response
 
-	err := util.Retry(5, 1, func() error {
+	err := util.Retry(2, 1, func() error {
 		var err error
 		r, err = client.Get(vpnList)
 		if err != nil {

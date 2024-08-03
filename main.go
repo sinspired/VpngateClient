@@ -9,6 +9,8 @@ import (
 )
 
 func main() {
+	// 设置全局日志级别为info
+	zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 
 	cmd.Execute()

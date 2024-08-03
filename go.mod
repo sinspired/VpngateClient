@@ -4,6 +4,7 @@ go 1.19
 
 require (
 	github.com/AlecAivazis/survey/v2 v2.3.7
+	github.com/go-toast/toast v0.0.0-20190211030409-01e6764cf0a4
 	github.com/jszwec/csvutil v1.10.0
 	github.com/juju/errors v1.0.0
 	github.com/olekukonko/tablewriter v0.0.5
@@ -23,6 +24,7 @@ require (
 	github.com/mattn/go-isatty v0.0.19 // indirect
 	github.com/mattn/go-runewidth v0.0.15 // indirect
 	github.com/mgutz/ansi v0.0.0-20200706080929-d51e80ef957d // indirect
+	github.com/nu7hatch/gouuid v0.0.0-20131221200532-179d4d0c4d8d // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rivo/uniseg v0.4.4 // indirect
 	github.com/rogpeppe/go-internal v1.9.0 // indirect

@@ -26,7 +26,7 @@ var listCmd = &cobra.Command{
 		
 		vpnServers, err := vpn.GetList(flagProxy, flagSocks5Proxy)
 		if err != nil {
-			log.Fatal().Msgf(err.Error())
+			log.Fatal().Msgf("获取列表错误：%s",err.Error())
 			os.Exit(1)
 		}
 
