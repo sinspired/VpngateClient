@@ -1,0 +1,69 @@
+name: Build and Release
+on:
+  push:
+    #tags:
+      #- 'v*'
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      
+      - name: Cache pip
+        uses: actions/cache@v3
+        with:
+          path: ~\AppData\Local\pip\Cache
+          key: ${{ runner.os }}-pip-${{ hashFiles('**\requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install future-fstrings
+          pip install pyinstaller
+      
+      - name: Build executable
+        run: |
+          pyinstaller --onefile --uac-admin VpngateClient\VpngateClient.py
+          #pyinstaller --hidden-import=console.detection --onefile --name vpngateclient.exe VpngateClient\VpngateClient.py
+          dir dist
+      
+      - name: Get tag info
+        id: get_tag_info
+        shell: pwsh
+        run: |
+          $tag = git describe --tags --abbrev=0
+          echo "LATEST_TAG=$tag" >> $env:GITHUB_ENV
+          $tagMessage = git tag -l --format='%(contents)' $LATEST_TAG
+          echo "TAG_MESSAGE=$tagMessage" >> $env:GITHUB_ENV
+      
+      - name: Delete old release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete ${{ env.LATEST_TAG }} -y --cleanup-tag
+        continue-on-error: true
+      
+      - name: Create Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ./dist/vpngateclient.exe
+          name: "VPNGate Client ${{ env.LATEST_TAG }}"
+          body: |
+            Release of VPNGate Client ${{ env.LATEST_TAG }}
+            
+            ${{ env.TAG_MESSAGE }}
+          tag_name: ${{ env.LATEST_TAG }}
