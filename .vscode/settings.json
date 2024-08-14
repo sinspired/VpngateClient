@@ -1,6 +1,0 @@
-{
-    "commentTranslate.targetLanguage": "en",
-    "yaml.schemas": {
-        "https://json.schemastore.org/semantic-release.json": "file:///d%3A/Desktop/VpngateClient/.releaserc"
-    }
-}
