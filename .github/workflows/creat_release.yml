@@ -90,7 +90,7 @@ jobs:
           cat > package/usr/share/applications/vpngate-client.desktop << 'EOL'
           [Desktop Entry]
           Name=VPN Gate Client
-          Exec=VpngateClient
+          Exec=pkexec VpngateClient
           Icon=vpngate-client
           Type=Application
           Categories=Network;
