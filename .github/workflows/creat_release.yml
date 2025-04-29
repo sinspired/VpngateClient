@@ -15,33 +15,22 @@ jobs:
             platform: Linux
             arch: amd64
             pyinstaller-arch: ""
-            artifact-suffix: Linux-amd64
           - os: ubuntu-latest
             platform: Linux
             arch: arm64
             pyinstaller-arch: "--target-arch aarch64"
-            artifact-suffix: Linux-arm64
           - os: windows-latest
             platform: Windows
             arch: x64
             pyinstaller-arch: ""
-            artifact-suffix: Windows-x64
-          # Windows arm64 交叉编译 PyInstaller 不支持，需在 arm64 runner 上运行
-          # - os: windows-latest
-          #   platform: Windows
-          #   arch: arm64
-          #   pyinstaller-arch: "--target-arch arm64"
-          #   artifact-suffix: Windows-arm64
           - os: macos-latest
             platform: macOS
             arch: amd64
             pyinstaller-arch: ""
-            artifact-suffix: macOS-amd64
           - os: macos-latest
             platform: macOS
             arch: arm64
             pyinstaller-arch: "--target-arch arm64"
-            artifact-suffix: macOS-arm64
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
@@ -60,28 +49,25 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
           pip install pyinstaller
+
+      - name: Only install requirements.txt on Windows
+        if: matrix.os == 'windows-latest'
+        run: pip install -r requirements.txt
 
       - name: Build Windows Executable
         if: matrix.os == 'windows-latest' && matrix.arch == 'x64'
         shell: pwsh
         run: |
-          pyinstaller --onefile --clean --uac-admin --name VpngateClient-${{ matrix.artifact-suffix }} --icon VpngateClient/logo.ico VpngateClient/VpngateClient.py
-          pyinstaller --onedir --clean --uac-admin --name VpngateClient-${{ matrix.platform }}-Portable-${{ matrix.arch }} --icon VpngateClient/logo.ico VpngateClient/VpngateClient.py
+          # build onefile exec file
+          pyinstaller --onefile --clean --uac-admin --name VpngateClient-${{ matrix.platform }}-${{ matrix.arch }} --icon VpngateClient/logo.ico VpngateClient/VpngateClient.py
 
-      # - name: Build Windows ARM64 Executable
-      #   if: matrix.os == 'windows-latest' && matrix.arch == 'arm64'
-      #   shell: pwsh
-      #   run: |
-      #     # PyInstaller does not support cross-compiling to Windows ARM64 on x64 runner.
-      #     echo "PyInstaller does not support cross-compiling to Windows ARM64."
+          # build onedir portable files
+          pyinstaller --onedir --clean --uac-admin --name VpngateClient-${{ matrix.platform }}-${{ matrix.arch }}-Portable --icon VpngateClient/logo.ico VpngateClient/VpngateClient.py
 
-      - name: Package Windows Portable
-        if: matrix.os == 'windows-latest' && matrix.arch == 'x64'
-        shell: pwsh
-        run: |
-          Compress-Archive -Path "dist\VpngateClient-Windows-Portable-x64\*" -DestinationPath "dist\VpngateClient-Windows-Portable-x64.zip" -Force
+          # zip portable folder
+          $outdir = "dist\VpngateClient-${{ matrix.platform }}-${{ matrix.arch }}-Portable"
+          Compress-Archive -Path "$outdir\*" -DestinationPath "dist\VpngateClient-${{ matrix.platform }}-${{ matrix.arch }}-Portable.zip" -Force
 
       - name: Build Linux Executable
         if: matrix.os == 'ubuntu-latest'
@@ -91,14 +77,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ruby ruby-dev rubygems build-essential
           sudo gem install --no-document fpm
-          pyinstaller --onefile --clean ${{ matrix.pyinstaller-arch }} --name VpngateClient-${{ matrix.artifact-suffix }} --icon VpngateClient/logo.png VpngateClient/VpngateClient.py
+          pyinstaller --onefile --clean ${{ matrix.pyinstaller-arch }} --name VpngateClient-${{ matrix.platform }}-${{ matrix.arch }} --icon VpngateClient/logo.png VpngateClient/VpngateClient.py
 
       - name: Build Linux DEB Package
         if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: |
           mkdir -p package/usr/local/bin package/usr/share/applications package/usr/share/icons/hicolor/256x256/apps
-          cp dist/VpngateClient-${{ matrix.artifact-suffix }} package/usr/local/bin/VpngateClient
+          cp dist/VpngateClient-${{ matrix.platform }}-${{ matrix.arch }} package/usr/local/bin/VpngateClient
           chmod +x package/usr/local/bin/VpngateClient
           cp ./VpngateClient/logo.png package/usr/share/icons/hicolor/256x256/apps/vpngate-client.png
           cat > package/usr/share/applications/vpngate-client.desktop << 'EOL'
@@ -111,20 +97,20 @@ jobs:
           Terminal=true
           EOL
           fpm -s dir -t deb -n vpngate-client -v ${GITHUB_REF_NAME#v} -C package .
-          mv vpngate-client_*.deb dist/VpngateClient-${{ matrix.artifact-suffix }}.deb
+          mv vpngate-client_*.deb dist/VpngateClient-${{ matrix.platform }}-${{ matrix.arch }}.deb
 
       - name: Build macOS Executable
         if: matrix.os == 'macos-latest'
         shell: bash
         run: |
-          pyinstaller --onefile --clean ${{ matrix.pyinstaller-arch }} --name VpngateClient-${{ matrix.artifact-suffix }} --icon VpngateClient/logo.icns VpngateClient/VpngateClient.py
+          pyinstaller --onefile --clean ${{ matrix.pyinstaller-arch }} --name VpngateClient-${{ matrix.platform }}-${{ matrix.arch }} --icon VpngateClient/logo.icns VpngateClient/VpngateClient.py
 
       - name: Package macOS App and DMG
         if: matrix.os == 'macos-latest'
         shell: bash
         run: |
           mkdir -p dist/VpngateClient.app/Contents/{MacOS,Resources}
-          cp dist/VpngateClient-${{ matrix.artifact-suffix }} dist/VpngateClient.app/Contents/MacOS/VpngateClient
+          cp dist/VpngateClient-${{ matrix.platform }}-${{ matrix.arch }} dist/VpngateClient.app/Contents/MacOS/VpngateClient
           chmod +x dist/VpngateClient.app/Contents/MacOS/VpngateClient
           cp VpngateClient/logo.icns dist/VpngateClient.app/Contents/Resources/ || true
           cat > dist/VpngateClient.app/Contents/Info.plist << 'EOL'
@@ -149,27 +135,32 @@ jobs:
           </dict>
           </plist>
           EOL
-          hdiutil create -volname VpngateClient -srcfolder dist/VpngateClient.app -ov -format UDZO dist/VpngateClient-${{ matrix.artifact-suffix }}.dmg
+          hdiutil create -volname VpngateClient -srcfolder dist/VpngateClient.app -ov -format UDZO dist/VpngateClient-${{ matrix.platform }}-${{ matrix.arch }}.dmg
+
+      - name: Package products into a unified catalog
+        shell: bash
+        run: |
+          mkdir -p release-assets
+          shopt -s nullglob
+          # 只复制 dist 下的“文件”，跳过目录
+          for f in dist/*${{ matrix.platform }}-${{ matrix.arch }}*; do
+            if [ -f "$f" ]; then
+              cp "$f" "release-assets/"
+            fi
+          done
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.platform }}-${{ matrix.arch }}-executables
           path: |
-            dist/VpngateClient-Windows-x64.exe
             dist/VpngateClient-Windows-Portable-x64.zip
-            dist/VpngateClient-Linux-amd64
-            dist/VpngateClient-Linux-amd64.deb
-            dist/VpngateClient-Linux-arm64
-            dist/VpngateClient-Linux-arm64.deb
-            dist/VpngateClient-macOS-amd64.dmg
-            dist/VpngateClient-macOS-arm64.dmg
+            release-assets/*${{ matrix.platform }}-${{ matrix.arch }}*
 
   create-release:
     needs: build
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    permissions: { contents: write }
 
     steps:
       - uses: actions/checkout@v4
@@ -184,13 +175,17 @@ jobs:
       - name: Prepare release files
         run: |
           mkdir -p release-assets
-          find release-files -type f -name 'VpngateClient-*' -exec cp {} release-assets/ \;
-        shell: bash
+          find release-files -type f -exec cp {} release-assets/ \;
+          # 确认文件已复制
+          echo "Files in release-assets directory:"
+          ls -la release-assets/
 
       - name: Get previous tag
         id: prev_tag
         run: |
-          PREV_TAG=$(git tag --sort=-creatordate | grep -v "^${{ github.ref_name }}$" | head -n 1)
+          PREV_TAG=$(git tag --sort=-creatordate \
+            | grep -v "^${{ github.ref_name }}$" \
+            | head -n1)
           echo "prev_tag=${PREV_TAG}" >> $GITHUB_OUTPUT
         shell: bash
 
@@ -202,7 +197,7 @@ jobs:
           else
             RANGE=""
           fi
-
+          
           # 使用 **%s** 渲染标题为粗体，%n%n 保留空行，然后 %b 输出正文
           # 1) 不带 prefix 的标题行：整行包裹
           # 2) 带 prefix 的标题行：只加粗 prefix 并保留余下文字
@@ -221,24 +216,27 @@ jobs:
           echo "$CHANGELOG" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
         shell: bash
-        
-      - name: Check existing release
+
+      - name: Check and delete existing release
         id: check_release
         run: |
           if gh release view ${{ github.ref_name }} &> /dev/null; then
-            echo "release_exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "release_exists=false" >> $GITHUB_OUTPUT
+            echo "正在删除已存在的发布..."
+            gh release delete ${{ github.ref_name }} --yes
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Delete existing release
-        if: steps.check_release.outputs.release_exists == 'true'
+      - name: Pre-release Check
+        id: pre_release_check
         run: |
-          gh release delete ${{ github.ref_name }} --yes
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME="${{ github.ref_name }}"
+          # 预发布关键字
+          if echo "$TAG_NAME" | grep -Eq 'dev|alpha|beta|rc'; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Create Release
         env:
@@ -265,7 +263,7 @@ jobs:
           | Platform | File |
           |----------|------|
           | Windows x64 | [![windows x64](https://custom-icon-badges.demolab.com/badge/Exe-x64-2d7d9a.svg?logo=windows11)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/VpngateClient-Windows-x64.exe) |
-          | Windows Portable x64 | [![windows portable x64](https://custom-icon-badges.demolab.com/badge/Portable-x64-67b7d1.svg?logo=windows11)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/VpngateClient-Windows-Portable-x64.zip) |
+          | Windows x64 Portable | [![windows x64 portable](https://custom-icon-badges.demolab.com/badge/Portable-x64-67b7d1.svg?logo=windows11)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/VpngateClient-Windows-x64-Portable.zip) |
           | Linux amd64 | [![Linux amd64](https://img.shields.io/badge/Linux-amd64-f84e29.svg?logo=linux)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/VpngateClient-Linux-amd64) |
           | Linux amd64 DEB | [![Linux amd64 DEB](https://img.shields.io/badge/DebPackage-amd64-FF9966.svg?logo=debian)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/VpngateClient-Linux-amd64.deb) |
           | Linux arm64 | [![Linux arm64](https://img.shields.io/badge/Linux-arm64-1E4CC9.svg?logo=linux)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/VpngateClient-Linux-arm64) |
@@ -284,7 +282,7 @@ jobs:
           - Executable: 
             Download and `chmod +x VpngateClient-Linux-amd64` or `VpngateClient-Linux-arm64`
             run `sudo ./VpngateClient-Linux-amd64`
-          
+
           - DEB: 
             `sudo dpkg -i VpngateClient-Linux-amd64.deb` or `VpngateClient-Linux-arm64.deb`
 
@@ -293,9 +291,20 @@ jobs:
 
           EOF
 
+          # 设置预发布标志（如果需要）
+          PRERELEASE_FLAG=""
+          if [ "${{ steps.pre_release_check.outputs.is_prerelease }}" = "true" ]; then
+            PRERELEASE_FLAG="--prerelease"
+            echo "创建预发布版本: ${{ github.ref_name }}"
+          else
+            echo "创建正式版本: ${{ github.ref_name }}"
+          fi
+
+          # 一次性创建发布
           gh release create ${{ github.ref_name }} \
             --title "${{ github.ref_name }}" \
             --notes-file RELEASE_NOTES.md \
             --draft=false \
+            $PRERELEASE_FLAG \
             "${FILES[@]}"
         shell: bash

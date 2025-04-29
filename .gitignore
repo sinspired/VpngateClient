@@ -21,6 +21,12 @@ venv.bak/
 *.pyo
 *.pyd
 *.db
+tmp*
+.tmp*
+temp*
+.temp*
+tmp*/
+temp*/
 
 # https://github.com/phusion/debian-packaging-for-the-modern-developer/blob/master/.gitignore
 debhelper-build-stamp
