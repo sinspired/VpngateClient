@@ -5,6 +5,7 @@ import concurrent.futures
 import csv
 import ctypes
 import logging
+from mmap import PROT_WRITE
 import os
 import platform
 import re
@@ -15,93 +16,43 @@ import socket
 import ssl
 import subprocess
 import sys
-import tempfile
 import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta
 
 from module_firewall import FirewallManager, IPv4_COMMANDS, IPv6_COMMANDS
-from translations import get_text
-
-is_linux = platform.system() == "Linux"
-is_windows = platform.system() == "Windows"
-
-if is_windows:
-    # 支持 ansi 颜色
-    try:
-        import colorama  # type: ignore
-
-        colorama.init()
-    except ImportError:
-        print("Warning: colorama module not found. ANSI colors may not work properly.")
+from module_translations import get_text
+from user_data_manager import UserDataManager
 
 # The URL for the VPN list
 VPN_LIST_URL = "https://www.vpngate.net/api/iphone/"
 SPEED_TEST_URL = "http://ipv4.download.thinkbroadband.com/50MB.zip"
 # SPEED_TEST_URL = "https://cachefly.cachefly.net/50mb.test"
-LOCAL_CSV_PATH = "servers.csv"
+LOCAL_CSV_NAME = "servers.csv"
 DEFAULT_EXPIRED_TIME = 4
 DEFAULT_MIN_SPEED = 0.01
 
-if is_windows:
-    base_tmp = tempfile.gettempdir()  # 跨平台临时目录 :contentReference[oaicite:3]{index=3}
-    TEMP_DIR = os.path.join(base_tmp, "VpngateClient")
-else:
-    # 设定临时文件夹
-    USER_HOME = os.path.expanduser("~")
-    TEMP_DIR = os.path.join(USER_HOME, ".config", "VpngateClient")
+# The app running with temp\cahe\config DIRs,automatic with promission and exists
+APP_RUNNING_DIR = UserDataManager("VpngateClient")
 
-os.makedirs(TEMP_DIR, exist_ok=True)
+TEMP_DIR = APP_RUNNING_DIR.temp_dir
+CACHE_DIR = APP_RUNNING_DIR.cache_dir
+CONFIG_DIR = APP_RUNNING_DIR.config_dir
 
-# 确保权限正确
-if is_linux:
-    os.chmod(TEMP_DIR, 0o0777)  # 只有所有者可以读写执行"
-
-CONFIGS_DIR = os.path.join(TEMP_DIR, "configs")
-
+is_linux = platform.system() == "Linux"
+is_windows = platform.system() == "Windows"
 
 logger = logging.getLogger()
-
-
 EU_COUNTRIES = [
-    "AL",
-    "AT",
-    "BA",
-    "BE",
-    "BG",
-    "CH",
-    "CY",
-    "DE",
-    "DK",
-    "EE",
-    "ES",
-    "FI",
-    "FR",
-    "GB",
-    "GR",
-    "HR",
-    "HU",
-    "IE",
-    "IS",
-    "IT",
-    "LT",
-    "LV",
-    "MK",
-    "MT",
-    "NL",
-    "NO",
-    "PL",
-    "PT",
-    "RO",
-    "RS",
-    "SE",
-    "SI",
+    ["AL", "AT", "BA", "BE", "BG", "CH", "CY", "DE", "DK", "EE", "SI"],
+    ["ES", "FI", "FR", "GB", "GR", "HR", "HU", "IE", "IS", "IT", "SE"],
+    ["LT", "LV", "MK", "MT", "NL", "NO", "PL", "PT", "RO", "RS"],
 ]
 
 
-class VPN:
-    """A VPN server."""
+class VPNClient:
+    """A VPN Client Manager."""
 
     def __init__(self, data, args):
         # Command Line Arguments
@@ -109,7 +60,7 @@ class VPN:
 
         # Logging
         self.log = logging.getLogger(
-            "VPN %s" % data.get("#HostName", data.get("IP", "Unknown"))
+            "VPNClient %s" % data.get("#HostName", data.get("IP", "Unknown"))
         )  # Use get for safety
 
         # VPN Information
@@ -186,12 +137,10 @@ class VPN:
         # Determine potential qualified file paths early
         if self.ip and self.port and self.proto:  # Check if we have needed info
             self.qualified_vpn_config_path = os.path.join(
-                CONFIGS_DIR,
+                CONFIG_DIR,
                 f"{self.country_code}_{self.ip}_{self.port}_{self.proto}.ovpn",
             )
-            self.qualified_vpn_csv_path = os.path.join(
-                CONFIGS_DIR, "qualified_vpns.csv"
-            )
+            self.qualified_vpn_csv_path = os.path.join(CONFIG_DIR, "qualified_vpns.csv")
 
         # Initialize FirewallManager
         self.firewall = FirewallManager(self.ip, IPv4_COMMANDS, IPv6_COMMANDS)
@@ -254,12 +203,8 @@ class VPN:
         self.log.info(get_text("connecting_to_vpn"))
 
         # --- Config File Setup ---
-        current_config_dir = os.path.join(TEMP_DIR, ".tmp")
-        os.makedirs(current_config_dir, exist_ok=True)
-        # os.chown(current_config_dir, uid, gid)  # 修复所有权
-        # os.chmod(current_config_dir, 0o777)
         config_file_path = os.path.join(
-            current_config_dir, f"vpn_{self.ip}_{self.port}_{self.country_code}.ovpn"
+            TEMP_DIR, f"vpn_{self.ip}_{self.port}_{self.country_code}.ovpn"
         )
 
         try:
@@ -276,7 +221,6 @@ class VPN:
                 conf_file.flush()
                 # File closed automatically by 'with' statement
 
-            # os.chown(config_file_path, uid, gid)  # 修复所有权
             # os.chmod(config_file_path, 0o777)
         except IOError as e:
             self.log.error(f"Failed to write config file {config_file_path}: {e}")
@@ -313,8 +257,8 @@ class VPN:
                 return False
 
             # if is_linux and os.path.exists(status_file_path):
-                # os.chmod(status_file_path, 0o777)
-                # os.chown(status_file_path, uid, gid)  # 修复所有权
+            # os.chmod(status_file_path, 0o777)
+            # os.chown(status_file_path, uid, gid)  # 修复所有权
 
             # --- Perform Speed Test ---
             speed_result = self.vpncheck()
@@ -543,12 +487,13 @@ class VPN:
                             self.clear_iptables_rules()
                         return False  # User rejected after delay
 
-                # Check if stats reading failed
-                if current_stats is None:
-                    self.log.warning(
-                        "Failed to read current stats. Incrementing no_change_counter."
-                    )
-                    no_change_counter += 1
+                # # Check if stats reading failed
+                # if current_stats is None:
+                #     self.log.warning(
+                #         "Failed to read current stats. Incrementing no_change_counter."
+                #     )
+                #     no_change_counter += 1
+
                 # Check if stats haven't changed
                 elif (
                     previous_stats  # Ensure previous_stats is not None
@@ -605,7 +550,6 @@ class VPN:
                     )
 
                     # Check for qualified VPN condition (only once)
-                    # Use >= 300 check, the original < 306 was likely just to trigger once
                     if elapsed_time >= 300 and not self.saved_as_qualified:
                         print("\n")
                         self.log.info(
@@ -618,14 +562,14 @@ class VPN:
                             self.log.info(
                                 f"Saving qualified VPN config: {self.qualified_vpn_config_path}"
                             )
-                            os.makedirs(CONFIGS_DIR, exist_ok=True)
+                            # os.makedirs(CONFIG_DIR, exist_ok=True)
                             try:
-                                if is_linux:
-                                    # Set permissions more securely if possible, 0o777 is very open
-                                    # Consider 0o775 or 0o755 depending on user/group needs
-                                    os.chmod(
-                                        CONFIGS_DIR, 0o777
-                                    )  # Keep original behavior for now
+                                # if is_linux:
+                                #     # Set permissions more securely if possible, 0o777 is very open
+                                #     # Consider 0o775 or 0o755 depending on user/group needs
+                                #     os.chmod(
+                                #         CONFIG_DIR, 0o777
+                                #     )  # Keep original behavior for now
 
                                 # Save .ovpn config
                                 with open(
@@ -690,9 +634,6 @@ class VPN:
                                     )
                                     # if is_linux:
                                     #     os.chmod(self.qualified_vpn_csv_path, 0o777)
-                                    #     os.chown(
-                                    #         self.qualified_vpn_csv_path, uid, gid
-                                    #     )  # 修复所有权
 
                                 self.saved_as_qualified = (
                                     True  # Mark as saved for this run
@@ -894,9 +835,8 @@ class VPN:
                         )
                         # Do not close stdout here, monitor might need it (though unlikely)
                         # proc.stdout.close() # Reconsider closing stdout
-                        print("等待10s")
-                        time.sleep(10)
-                        print("等待完成")
+
+                        time.sleep(10)  # 等待 10s 再进行下载测试
                         return True
 
                 except IOError:
@@ -953,9 +893,7 @@ class VPN:
                     return True
                 else:
                     # Timeout occurred
-                    print(
-                        "\n自动确认，进入连接监测模式。按 CTRL+C 切换VPN！"
-                    )  # Inform user
+                    print("\n自动确认，进入连接监测模式。")  # Inform user
                     return True  # Default to yes on timeout
             else:
                 # Not an interactive terminal (e.g., piped input), default to yes
@@ -1067,28 +1005,28 @@ class VPN:
         try:
             # Assuming speedtest() returns speed in Mbps or a specific error code
             # Need to know the exact return units/values of the actual speedtest function
-            download_speed_mbps = speedtest()  # Placeholder call
+            download_speed_MBps = speedtest()  # Placeholder call
 
-            if download_speed_mbps is None:
+            if download_speed_MBps is None:
                 # Requirement 2: Handle specific error code
                 print("\033[30m" + get_text("error_download_speed") + "\033[0m")
                 return "error"  # Special return value for this case
-            if download_speed_mbps == "error":
+            if download_speed_MBps == "error":
                 # Requirement 2: Handle specific error code
                 print("\033[31m" + get_text("failed_download_speed") + "\033[0m")
                 return False
-            elif download_speed_mbps < self.args.min_speed:
+            elif download_speed_MBps < self.args.min_speed:
                 print(
                     "\033[31m"
                     + get_text("bad_download_speed")
-                    + f" ({download_speed_mbps:.2f} Mbps)"
+                    + f" ({download_speed_MBps:.2f} Mbps)"
                     + "\033[0m"
                 )
                 return False
             else:
                 # Speed is acceptable
                 print(
-                    "\033[32m" + f"测速成功: {download_speed_mbps:.2f} Mbps" + "\033[0m"
+                    "\033[32m" + f"测速成功: {download_speed_MBps:.2f} Mbps" + "\033[0m"
                 )
                 return True
         except KeyboardInterrupt:
@@ -1117,7 +1055,7 @@ class VPN:
         return f"ip={ip_str:<15}, country={cc_str}, proto={proto_str}, port={port_str}"
 
 
-class FileVPN(VPN):
+class FileVPN(VPNClient):
     """A VPN whose config is read directly from an .openvpn file"""
 
     def __init__(self, args):
@@ -1165,7 +1103,7 @@ class VPNList:
 
         # --- Loading ---
         # Check if the main list CSV file exists and is not expired
-        self.local_csv_path = LOCAL_CSV_PATH
+        self.local_csv_path = os.path.join(CACHE_DIR, LOCAL_CSV_NAME)
         if self.is_file_expired(self.local_csv_path):
             self.log.info(get_text("vpnlist_expired"))
             # Make sure download_vpn_list is defined or imported
@@ -1229,23 +1167,68 @@ class VPNList:
 
         return None
 
+    # 常见代理端口，用于尝试通过不同端口下载列表
+    COMMON_PROXY_PORTS = {
+        "10808",
+        "7890",
+        "10809",
+    }
+
+    def _detect_proxy_port(self):
+        """检测可用的代理端口"""
+
+        def check_port(port):
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                    sock.settimeout(0.1)
+                    if sock.connect_ex(("127.0.0.1", int(port))) == 0:
+                        return True, port
+            except Exception:
+                pass
+            return False, None
+
+        for port in self.COMMON_PROXY_PORTS:
+            success, port = check_port(port)
+            if success:
+                self.log.debug(
+                    f"A proxy server running at port: {port}, use Proxy to download"
+                )
+                return True, port
+
+        return False, None
+
     def download_vpn_list(self, url, file_path, backup_proxy=None):
         """Download the VPN list from the given URL and save it to the specified file path."""
         self.log.info(get_text("download_from_main_url"), url)
 
-        try:
-            # Download with proxy
-            proxy = urllib.request.ProxyHandler(
-                {"http": "http://localhost:10808", "https": "https://localhost:10808"}
-            )
-            opener = urllib.request.build_opener(proxy)
-            urllib.request.install_opener(opener)
+        proxy_running, port = self._detect_proxy_port()
 
-            req = urllib.request.urlopen(url)
-            data = req.read()
-            with open(file_path, "wb") as f:
-                f.write(data)
-            self.log.info(get_text("vpnlist_download_saved_to_file"), file_path)
+        try:
+            if proxy_running:
+                # Download with proxy
+                proxy = urllib.request.ProxyHandler(
+                    {
+                        "http": f"http://localhost:{port}",
+                        "https": f"https://localhost:{port}",
+                    }
+                )
+                opener = urllib.request.build_opener(proxy)
+                urllib.request.install_opener(opener)
+
+                req = urllib.request.urlopen(url, timeout=10)
+                data = req.read()
+
+                # Check if the data is valid
+                if (
+                    not data or len(data) < 1000
+                ):  # Assuming valid data should be larger than 100 bytes
+                    raise ValueError(get_text("invalid_vpnlist_data"))
+
+                with open(file_path, "wb") as f:
+                    f.write(data)
+                self.log.info(get_text("vpnlist_download_saved_to_file"), file_path)
+            else:
+                raise Exception
         except Exception:
             self.log.error(get_text("failed_to_download_from_main_url"))
             original_url = "https://raw.githubusercontent.com/sinspired/VpngateAPI/main/servers.csv"
@@ -1291,8 +1274,8 @@ class VPNList:
 
         # 1. Load Qualified VPNs from configs folder
         qualified_loaded_count = 0
-        if os.path.exists(CONFIGS_DIR):  # Assume CONFIGS_DIR is defined
-            qualified_vpn_csv = os.path.join(CONFIGS_DIR, "qualified_vpns.csv")
+        if os.path.exists(CONFIG_DIR):  # Assume CONFIGS_DIR is defined
+            qualified_vpn_csv = os.path.join(CONFIG_DIR, "qualified_vpns.csv")
             if os.path.exists(qualified_vpn_csv):
                 try:
                     with open(qualified_vpn_csv, "r", encoding="utf-8") as csvfile:
@@ -1313,7 +1296,9 @@ class VPNList:
                                     # Add other fields expected by your VPN class constructor if necessary
                                 }
                                 # Assuming VPN class takes (vpn_data_dict, args)
-                                self.qualified_vpns.append(VPN(vpn_data, self.args))
+                                self.qualified_vpns.append(
+                                    VPNClient(vpn_data, self.args)
+                                )
                                 qualified_loaded_count += 1
                             except Exception as e:
                                 self.log.error(
@@ -1334,7 +1319,7 @@ class VPNList:
             else:
                 self.log.info(f"Qualified VPN file not found: {qualified_vpn_csv}")
         else:
-            self.log.info(f"Configs directory not found: {CONFIGS_DIR}")
+            self.log.info(f"Configs directory not found: {CONFIG_DIR}")
 
         # 2. Load Main VPN list
         main_list_loaded_count = 0
@@ -1349,7 +1334,7 @@ class VPNList:
                     rows = filter(lambda r: not r.startswith("*"), f)
                     reader = csv.DictReader(rows)
                     # Assuming VPN class takes (row_dict, args)
-                    self.main_vpns = [VPN(row, self.args) for row in reader]
+                    self.main_vpns = [VPNClient(row, self.args) for row in reader]
                     main_list_loaded_count = len(self.main_vpns)
                 self.log.info(
                     f"Loaded {main_list_loaded_count} VPNs from main list: {main_list_file_path}"
@@ -1506,14 +1491,14 @@ def speedtest():
                 elapsed_time = 0.001
 
             file_size_mb = file_size / (1024 * 1024)
-            download_speed_mbps = file_size_mb / elapsed_time
-            download_speed_kbps = download_speed_mbps * 1024
+            download_speed_MBps = file_size_mb / elapsed_time
+            download_speed_KBps = download_speed_MBps * 1024
 
             print(
-                f"[ Filesize: \033[90;4m{file_size_mb:.2f}\033[0m MB, in \033[90;4m{elapsed_time:.2f}\033[0m s Download Speed: \033[32;4m{download_speed_mbps:.2f}\033[0m MB/s, {download_speed_kbps:.2f} KB/s]"
+                f"[ Filesize: \033[90;4m{file_size_mb:.2f}\033[0m MB, in \033[90;4m{elapsed_time:.2f}\033[0m s Download Speed: \033[32;4m{download_speed_MBps:.2f}\033[0m MB/s, {download_speed_KBps:.2f} KB/s]"
             )
 
-            return download_speed_mbps
+            return download_speed_MBps
 
     except urllib.error.HTTPError as e:
         print(f"下载失败，HTTP错误: {e.code} - {e.reason}")
@@ -1890,4 +1875,15 @@ def main():
 
 
 if __name__ == "__main__":
+    if is_windows:
+        # 支持 ansi 颜色
+        try:
+            import colorama  # type: ignore
+
+            colorama.init()
+        except ImportError:
+            print(
+                "Warning: colorama module not found. ANSI colors may not work properly."
+            )
+
     sys.exit(main())
