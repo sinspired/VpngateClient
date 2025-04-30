@@ -22,18 +22,18 @@ This client has following dependencies:
 ```powershell
   git clone https://github.com/sinspired/VpngateClient.git
   cd VpngateClient
-  pip install -e .
-  vpngate
+  sudo pip install -e .
+  sudo vpngate
 ```
 
-Note: `vpngate -h` for help
+Note: `sudo vpngate -h` for help
 
 ### Install for Development
 
 If you are using a system-managed Python environment (e.g., on Ubuntu), you may encounter restrictions when installing packages system-wide. To install in development mode, you can use the following command:
 
 ```bash
-pip install -e . --break-system-packages
+sudo pip install -e . --break-system-packages
 ```
 
 **Warning**: Using `--break-system-packages` may affect your system's Python environment. If you prefer a safer approach, consider using a virtual environment.
@@ -69,4 +69,4 @@ As a special case, the `--eu` flag only considers VPN servers in Europe.
 
 ### Other Options
 
-All the command line options are available by running `vpngate --help`.
+All the command line options are available by running `sudo vpngate --help`.
