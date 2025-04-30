@@ -20,9 +20,17 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timedelta
 
-from module_firewall import FirewallManager, IPv4_COMMANDS, IPv6_COMMANDS
-from module_translations import get_text
-from user_data_manager import UserDataManager
+# 本地模块导入
+if __name__ == "__main__":
+    # 绝对导入用于脚本运行
+    from module_firewall import FirewallManager, IPv4_COMMANDS, IPv6_COMMANDS
+    from module_translations import get_text
+    from user_data_manager import UserDataManager
+else:
+    # 相对导入用于模块导入
+    from .module_firewall import FirewallManager, IPv4_COMMANDS, IPv6_COMMANDS
+    from .module_translations import get_text
+    from .user_data_manager import UserDataManager
 
 # The URL for the VPN list
 VPN_LIST_URL = "https://www.vpngate.net/api/iphone/"
@@ -558,7 +566,7 @@ class VPNClient:
                         )
 
                     # Check for qualified VPN condition (only once)
-                    qualified_time_in_second = self.args.qualified_time*60
+                    qualified_time_in_second = self.args.qualified_time * 60
                     if (
                         elapsed_time >= qualified_time_in_second
                         and not self.saved_as_qualified
@@ -694,7 +702,8 @@ class VPNClient:
                     print()  # Newline after status print
                     self.log.warning(
                         get_text("connection_disconnected")
-                        + get_text("(No status change for %s seconds)"), no_change_counter * monitor_interval
+                        + get_text("(No status change for %s seconds)"),
+                        no_change_counter * monitor_interval,
                     )
                     self.terminate_vpn(proc)
                     self._cleanup_temp_files(config_file_path, status_file_path)
@@ -866,7 +875,10 @@ class VPNClient:
                         # Do not close stdout here, monitor might need it (though unlikely)
                         # proc.stdout.close() # Reconsider closing stdout
                         for remaining in range(10, 0, -1):
-                            print(f"\033[90m等待网络设置完成 ({remaining}s)...\033[0m", end="\r")
+                            print(
+                                f"\033[90m等待网络设置完成 ({remaining}s)...\033[0m",
+                                end="\r",
+                            )
                             time.sleep(1)  # 每秒更新倒计时
                         print("\033[90m网络设置完成，开始下载测试。\033[0m", end="\r")
                         return True
