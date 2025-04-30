@@ -400,7 +400,7 @@ class UserDataManager:
 # 使用示例
 if __name__ == "__main__":
     # 创建文件存储管理器实例
-    fsm = FileStorageManager("my_awesome_app")
+    fsm = UserDataManager("my_awesome_app")
 
     # 显示各类型目录的路径
     print(f"临时文件目录: {fsm.temp_dir}")

@@ -5,7 +5,6 @@ import concurrent.futures
 import csv
 import ctypes
 import logging
-from mmap import PROT_WRITE
 import os
 import platform
 import re
@@ -32,7 +31,7 @@ SPEED_TEST_URL = "http://ipv4.download.thinkbroadband.com/50MB.zip"
 LOCAL_CSV_NAME = "servers.csv"
 DEFAULT_EXPIRED_TIME = 4
 DEFAULT_MIN_SPEED = 0.01
-
+DEFAULT_QUALIFIED_TIME = 5
 # The app running with temp\cahe\config DIRs,automatic with promission and exists
 APP_RUNNING_DIR = UserDataManager("VpngateClient")
 
@@ -59,9 +58,16 @@ class VPNClient:
         self.args = args
 
         # Logging
-        self.log = logging.getLogger(
-            "VPNClient %s" % data.get("#HostName", data.get("IP", "Unknown"))
-        )  # Use get for safety
+        if self.args.verbose:
+            self.log = logging.getLogger(
+                "%s %s"
+                % (
+                    self.__class__.__name__,
+                    data.get("#HostName", data.get("IP", "Unknown")),
+                )
+            )  # Use get for safety
+        else:
+            self.log = logging.getLogger(self.__class__.__name__)  # 净化输出
 
         # VPN Information
         self.ip = data.get("IP")  # Use get for safety
@@ -251,7 +257,7 @@ class VPNClient:
                 # VPN failed to initialize. Error logged in wait_for_vpn_ready.
                 # Terminate and cleanup are handled within wait_for_vpn_ready or its exception handlers
                 # Need to ensure cleanup happens if wait_for_vpn_ready returns False normally
-                self.log.warning("VPN process did not initialize correctly.")
+                self.log.debug("VPN process did not initialize correctly.")
                 self.terminate_vpn(proc)  # Attempt termination if still running
                 self._cleanup_temp_files(config_file_path, status_file_path)
                 return False
@@ -265,8 +271,11 @@ class VPNClient:
             require_delayed_prompt = False
 
             if speed_result == "error":
-                self.log.warning(
-                    "Speedtest failed or returned error. Monitoring connection before prompting."
+                print(
+                    get_text(
+                        "Speedtest failed or returned error. Monitoring connection before prompting."
+                    ),
+                    end="\r",
                 )
                 # Proceed without immediate prompt, will prompt after 10s in monitor if stable
                 require_delayed_prompt = True
@@ -473,9 +482,7 @@ class VPNClient:
                 # Handle delayed prompt if needed
                 if require_delayed_prompt and elapsed_time > 10:
                     print()  # 新行
-                    self.log.info(
-                        "Connection stable for 10s after speedtest error. Prompting user."
-                    )
+                    print("\r连接保持 10 秒,也许可用.", end="\r")
                     use_this_vpn = self.prompt_use_vpn()
                     require_delayed_prompt = False  # Prompt only once
                     if not use_this_vpn:
@@ -540,27 +547,35 @@ class VPNClient:
                     write_speed_mbps = (bytes_written / read_interval) / (1024 * 1024)
 
                     # Print status
-                    print(
-                        f"\r -已连接: {format_elapsed_time(elapsed_time):>7s} | "
-                        f"已下载: {current_stats['tun_tap_write']/(1024*1024):5.0f} MB | "
-                        f"下行: {format_speed(write_speed_mbps):>8s} | "
-                        f"上行: {format_speed(read_speed_mbps):>8s}",
-                        end="",
-                        flush=True,
-                    )
+                    if write_speed_mbps >= 0 and read_speed_mbps >= 0:
+                        print(
+                            f"\r -{get_text("connected")}: {format_elapsed_time(elapsed_time):>7s} | "
+                            f"{get_text("download")}: {current_stats['tun_tap_write']/(1024*1024):4.0f} MB | "
+                            f"{get_text("down")}: {format_speed(write_speed_mbps):>10s} | "
+                            f"{get_text("up")}: {format_speed(read_speed_mbps):>10s}",
+                            end="",
+                            flush=True,
+                        )
 
                     # Check for qualified VPN condition (only once)
-                    if elapsed_time >= 300 and not self.saved_as_qualified:
-                        print("\n")
-                        self.log.info(
-                            "Connection stable for 5 minutes. Checking if qualified."
+                    qualified_time_in_second = self.args.qualified_time*60
+                    if (
+                        elapsed_time >= qualified_time_in_second
+                        and not self.saved_as_qualified
+                    ):
+                        print(
+                            "\r",
+                            get_text("checking_if_qualified")
+                            % (self.args.qualified_time),
+                            end="\r",
                         )
+
                         # Check if the specific config file already exists (proxy for already saved)
                         if self.qualified_vpn_config_path and not os.path.exists(
                             self.qualified_vpn_config_path
                         ):
-                            self.log.info(
-                                f"Saving qualified VPN config: {self.qualified_vpn_config_path}"
+                            self.log.debug(
+                                f"\r将要保存优质配置到: {self.qualified_vpn_config_path}"
                             )
                             # os.makedirs(CONFIG_DIR, exist_ok=True)
                             try:
@@ -578,11 +593,8 @@ class VPNClient:
                                     encoding="utf-8",
                                 ) as f:  # Use 'w' to overwrite/create
                                     f.write(self.config)  # Write the original config
-                                print(
-                                    "\n"
-                                    + "\033[32m"
-                                    + f"VPN连接稳定，保存配置到文件 {self.qualified_vpn_config_path}。"
-                                    + "\033[0m"
+                                self.log.debug(
+                                    f"\033[32mVPN连接稳定，保存配置到文件\n {self.qualified_vpn_config_path}。\033[0m"
                                 )  # Newline before message
 
                                 # Save VPN info to CSV file
@@ -628,9 +640,13 @@ class VPNClient:
                                             writer.writeheader()  # Write header if new file or empty
                                         writer.writerow(vpn_data)
                                     print(
-                                        "\033[32m"
-                                        + "VPN信息已保存到CSV文件。"
-                                        + "\033[0m"
+                                        get_text(
+                                            "VPN Connected stable in n minutes, save VPN config in CSV file"
+                                        )
+                                        % (
+                                            self.args.qualified_time,
+                                            self.qualified_vpn_csv_path,
+                                        )
                                     )
                                     # if is_linux:
                                     #     os.chmod(self.qualified_vpn_csv_path, 0o777)
@@ -659,8 +675,12 @@ class VPNClient:
                                 "Already saved as qualified during this run."
                             )
                         else:
-                            self.log.info(
-                                f"Qualified config file already exists: {self.qualified_vpn_config_path}. Skipping save."
+                            print(
+                                get_text(
+                                    "Qualified config file already exists. Skipping save."
+                                )
+                                % (self.qualified_vpn_config_path),
+                                end="\r",
                             )
                             self.saved_as_qualified = (
                                 True  # Also mark as saved if file pre-exists
@@ -674,7 +694,7 @@ class VPNClient:
                     print()  # Newline after status print
                     self.log.warning(
                         get_text("connection_disconnected")
-                        + f" (No status change for {no_change_counter * monitor_interval} seconds)"
+                        + get_text("(No status change for %s seconds)"), no_change_counter * monitor_interval
                     )
                     self.terminate_vpn(proc)
                     self._cleanup_temp_files(config_file_path, status_file_path)
@@ -686,7 +706,7 @@ class VPNClient:
                 if proc.poll() is not None:
                     print()  # Newline after status print
                     self.log.error(
-                        f"OpenVPN process terminated unexpectedly with exit code {proc.returncode}."
+                        get_text("connection_disconnected") + f"code: {proc.returncode}"
                     )
                     # No need to call terminate_vpn as it already exited
                     self._cleanup_temp_files(config_file_path, status_file_path)
@@ -740,7 +760,7 @@ class VPNClient:
         command = [
             "openvpn",
             "--verb",
-            "6",  # Verb 3 is usually sufficient, 4 is debug level
+            "4",  # Verb 3 is usually sufficient, 4 is debug level
             "--script-security",
             "2",
             # Retry/timeout settings (consider adjusting based on typical connection times)
@@ -781,7 +801,7 @@ class VPNClient:
 
     def wait_for_vpn_ready(self, proc, conffileName):
         """Waits for the VPN process to signal readiness or timeout/fail."""
-        self.log.info("Waiting for VPN initialization...")
+        self.log.info(get_text("Waiting for VPN initialization..."))
         # Use a clearer timeout mechanism based on start time
         start_wait_time = time.time()
         timeout_seconds = self.args.vpn_timeout  # Use timeout from args
@@ -828,15 +848,27 @@ class VPNClient:
                         print("\033[90m" + line_strip + "\033[0m")
 
                     if "Initialization Sequence Completed" in line_strip:
+                        Init_time = time.time() - start_wait_time
+                        Init_time = f"{Init_time:.1f}"
                         print(  # Clear screen and print success
-                            "\033[2J\033[H\033[0m\033[32m"
-                            + (get_text("vpn_init_success") % self.country_code)
-                            + "\033[0m"
+                            "\033[2J\033[H\033[0m"
+                            + (
+                                get_text("vpn_init_success")
+                                % (
+                                    self.country_code,
+                                    self.ip,
+                                    self.port,
+                                    self.proto,
+                                    Init_time,
+                                )
+                            )
                         )
                         # Do not close stdout here, monitor might need it (though unlikely)
                         # proc.stdout.close() # Reconsider closing stdout
-
-                        time.sleep(10)  # 等待 10s 再进行下载测试
+                        for remaining in range(10, 0, -1):
+                            print(f"\033[90m等待网络设置完成 ({remaining}s)...\033[0m", end="\r")
+                            time.sleep(1)  # 每秒更新倒计时
+                        print("\033[90m网络设置完成，开始下载测试。\033[0m", end="\r")
                         return True
 
                 except IOError:
@@ -851,7 +883,8 @@ class VPNClient:
                 time.sleep(self.args.vpn_timeout_poll_interval)  # e.g., 0.1 seconds
 
             # Loop finished without success message = Timeout
-            self.log.warning(get_text("vpn_init_timeout"))
+
+            self.log.info("\033[33m" + get_text("vpn_init_timeout") + "\033[0m")
             # Don't close stdout here either, let terminate_vpn handle process
             # proc.stdout.close()
             # self.terminate_vpn(proc) # Terminate is handled in the caller (`connect`)
@@ -874,7 +907,9 @@ class VPNClient:
             (boolean) True if the users wants to use this VPN (or timeout),
                       False if not (e.g., presses Ctrl+C or types 'n').
         """
-        print(get_text("use_or_change") + " (自动确认 5 秒后)")  # Indicate timeout
+        print(
+            get_text("use_or_change") + " \033[90m(5 秒)\033[0m", end="\r"
+        )  # Indicate timeout
 
         try:
             # Use select to wait for input on stdin with a timeout
@@ -893,7 +928,9 @@ class VPNClient:
                     return True
                 else:
                     # Timeout occurred
-                    print("\n自动确认，进入连接监测模式。")  # Inform user
+                    print(
+                        "\r自动确认，进入连接监测模式. ", end="\r", flush=True
+                    )  # Inform user
                     return True  # Default to yes on timeout
             else:
                 # Not an interactive terminal (e.g., piped input), default to yes
@@ -916,7 +953,7 @@ class VPNClient:
             return  # Nothing to terminate
 
         pid = proc.pid
-        self.log.info(f"{get_text('terminating_vpn')} (PID: {pid})")
+        self.log.info(f"{get_text('terminating_vpn')} \033[90m(PID: {pid})\033[0m")
 
         # --- Graceful Termination (SIGTERM) ---
         try:
@@ -937,9 +974,7 @@ class VPNClient:
         try:
             # Wait for up to 5 seconds for the process to exit
             proc.wait(timeout=5)
-            self.log.info(
-                f"{get_text('vpn_terminated')} gracefully (PID: {pid}). Exit code: {proc.returncode}"
-            )
+            self.log.info(f"{get_text('vpn_terminated')}")
             return  # Success
         except subprocess.TimeoutExpired:
             self.log.warning(
@@ -1000,7 +1035,7 @@ class VPNClient:
                 'error' if speedtest returns 9999 (indicating an error).
         """
 
-        print(get_text("performing_speedtest"))
+        print("\r" + get_text("performing_speedtest"), end="\r")
 
         try:
             # Assuming speedtest() returns speed in Mbps or a specific error code
@@ -1025,9 +1060,6 @@ class VPNClient:
                 return False
             else:
                 # Speed is acceptable
-                print(
-                    "\033[32m" + f"测速成功: {download_speed_MBps:.2f} Mbps" + "\033[0m"
-                )
                 return True
         except KeyboardInterrupt:
             print("\n" + get_text("speedtest_canceled"))  # Newline for clarity
@@ -1091,11 +1123,11 @@ def check_call_infallible(cmd):
 
 
 class VPNList:
-
     def __init__(self, args):
         print("\033[2J\033[H\033[32m" + get_text("vpn_start_running") + "\033[0m")
         self.args = args
-        self.log = logging.getLogger("VPNList")
+        # Logging
+        self.log = logging.getLogger(self.__class__.__name__)  # 自动获取类名
 
         # Initialize separate lists
         self.qualified_vpns = []
@@ -1121,7 +1153,10 @@ class VPNList:
 
         # Log final counts
         self.log.info(
-            f"Loaded and filtered: {len(self.qualified_vpns)} qualified VPNs, {len(self.main_vpns)} main list VPNs."
+            get_text("Loaded_and_filtered_vpn_lists"),
+            len(self.qualified_vpns) + len(self.main_vpns),
+            len(self.qualified_vpns),
+            len(self.main_vpns),
         )
 
     def is_file_expired(self, file_path):
@@ -1190,9 +1225,7 @@ class VPNList:
         for port in self.COMMON_PROXY_PORTS:
             success, port = check_port(port)
             if success:
-                self.log.debug(
-                    f"A proxy server running at port: {port}, use Proxy to download"
-                )
+                self.log.info(get_text("proxy_running"), port)
                 return True, port
 
         return False, None
@@ -1205,28 +1238,32 @@ class VPNList:
 
         try:
             if proxy_running:
-                # Download with proxy
-                proxy = urllib.request.ProxyHandler(
-                    {
-                        "http": f"http://localhost:{port}",
-                        "https": f"https://localhost:{port}",
-                    }
-                )
-                opener = urllib.request.build_opener(proxy)
-                urllib.request.install_opener(opener)
+                try:
+                    # Download with proxy
+                    proxy = urllib.request.ProxyHandler(
+                        {
+                            "http": f"http://localhost:{port}",
+                            "https": f"https://localhost:{port}",
+                        }
+                    )
+                    opener = urllib.request.build_opener(proxy)
+                    urllib.request.install_opener(opener)
 
-                req = urllib.request.urlopen(url, timeout=10)
-                data = req.read()
+                    req = urllib.request.urlopen(url, timeout=10)
+                    data = req.read()
 
-                # Check if the data is valid
-                if (
-                    not data or len(data) < 1000
-                ):  # Assuming valid data should be larger than 100 bytes
-                    raise ValueError(get_text("invalid_vpnlist_data"))
+                    # Check if the data is valid
+                    if (
+                        not data or len(data) < 1000
+                    ):  # Assuming valid data should be larger than 100 bytes
+                        raise ValueError(get_text("invalid_vpnlist_data"))
 
-                with open(file_path, "wb") as f:
-                    f.write(data)
-                self.log.info(get_text("vpnlist_download_saved_to_file"), file_path)
+                    with open(file_path, "wb") as f:
+                        f.write(data)
+                    self.log.info(get_text("vpnlist_download_saved_to_file"), file_path)
+                except Exception as e:
+                    self.log.debug(f"system proxy error: {e}")
+                    raise Exception
             else:
                 raise Exception
         except Exception:
@@ -1270,7 +1307,7 @@ class VPNList:
 
     def load_vpns(self, main_list_file_path):
         """Loads qualified VPNs and main list VPNs into separate lists."""
-        self.log.info("Loading VPN lists...")
+        self.log.info(get_text("loading_vpn_list"))
 
         # 1. Load Qualified VPNs from configs folder
         qualified_loaded_count = 0
@@ -1306,7 +1343,9 @@ class VPNList:
                                 )
                     if qualified_loaded_count > 0:
                         self.log.info(
-                            f"Loaded {qualified_loaded_count} VPNs from {qualified_vpn_csv}"
+                            get_text("found_vpn_servers"),
+                            qualified_vpn_csv,
+                            qualified_loaded_count,
                         )
                     else:
                         self.log.info(
@@ -1317,7 +1356,7 @@ class VPNList:
                         f"Failed to read or process {qualified_vpn_csv}: {e}"
                     )
             else:
-                self.log.info(f"Qualified VPN file not found: {qualified_vpn_csv}")
+                self.log.info(get_text("file_path_not_found"), qualified_vpn_csv)
         else:
             self.log.info(f"Configs directory not found: {CONFIG_DIR}")
 
@@ -1337,7 +1376,9 @@ class VPNList:
                     self.main_vpns = [VPNClient(row, self.args) for row in reader]
                     main_list_loaded_count = len(self.main_vpns)
                 self.log.info(
-                    f"Loaded {main_list_loaded_count} VPNs from main list: {main_list_file_path}"
+                    get_text("found_vpn_servers"),
+                    main_list_file_path,
+                    main_list_loaded_count,
                 )
             except Exception as e:
                 self.log.error(
@@ -1383,14 +1424,15 @@ class VPNList:
             )
         else:
             # Add a default filter to exclude "CN" if no other filters are applied
-            self.log.info(
-                "No geographic filters applied. Excluding VPNs from China (CN)."
-            )
+            CN_servers = []
+            CN_servers.append(lambda vpn: vpn.country_code != "CN")
+
+            self.log.info(get_text("default_filter"), len(CN_servers))
             filters.append(lambda vpn: vpn.country_code != "CN")
 
     def filter_unresponsive_vpns(self):
         """Probes VPN servers and removes unresponsive ones from both lists."""
-        self.log.info("Filtering unresponsive servers...")
+        self.log.info(get_text("filtering_servers"))
 
         # Combine lists for probing, but keep track of origin if needed,
         # or just probe all and filter originals later.
@@ -1403,9 +1445,7 @@ class VPNList:
         n = self.args.probes  # Number of concurrent probes
         responding_vpns = set()  # Use a set for efficient lookup
 
-        self.log.info(
-            f"Probing {len(vpns_to_probe)} VPNs concurrently (workers={n})..."
-        )
+        self.log.info(get_text("probing_vpns_concurrently"), len(vpns_to_probe), n)
         with concurrent.futures.ThreadPoolExecutor(max_workers=n) as ex:
             # Assuming vpn.is_listening() is defined in your VPN class
             # and returns True/False
@@ -1423,7 +1463,7 @@ class VPNList:
                         f"Availability probe failed for a VPN (details might require VPN ID): {e}"
                     )
 
-        self.log.info(f"Found {len(responding_vpns)} responding VPNs overall.")
+        self.log.debug(get_text("found_responding_vpns"), len(responding_vpns))
 
         # Filter the original lists
         orig_qualified_count = len(self.qualified_vpns)
@@ -1435,11 +1475,15 @@ class VPNList:
         ]
         self.main_vpns = [vpn for vpn in self.main_vpns if vpn in responding_vpns]
 
-        self.log.info(
-            f"Qualified VPNs after responsiveness filter: {len(self.qualified_vpns)} (from {orig_qualified_count})"
+        self.log.debug(
+            "Qualified VPNs after responsiveness filter: %s (from %s)",
+            len(self.qualified_vpns),
+            orig_qualified_count,
         )
-        self.log.info(
-            f"Main list VPNs after responsiveness filter: {len(self.main_vpns)} (from {orig_main_count})"
+        self.log.debug(
+            "Main list VPNs after responsiveness filter: %s (from %s)",
+            len(self.main_vpns),
+            orig_main_count,
         )
 
 
@@ -1490,13 +1534,18 @@ def speedtest():
             if elapsed_time < 0.001:
                 elapsed_time = 0.001
 
-            file_size_mb = file_size / (1024 * 1024)
-            download_speed_MBps = file_size_mb / elapsed_time
+            file_size_MB = file_size / (1024 * 1024)
+            download_speed_MBps = file_size_MB / elapsed_time
             download_speed_KBps = download_speed_MBps * 1024
 
-            print(
-                f"[ Filesize: \033[90;4m{file_size_mb:.2f}\033[0m MB, in \033[90;4m{elapsed_time:.2f}\033[0m s Download Speed: \033[32;4m{download_speed_MBps:.2f}\033[0m MB/s, {download_speed_KBps:.2f} KB/s]"
-            )
+            if download_speed_MBps < 1:
+                print(
+                    f"\r[ Filesize: \033[90;4m{file_size_MB:.2f}\033[0m MB, in \033[90;4m{elapsed_time:.2f}\033[0m s, Download Speed: \033[32;4m{download_speed_KBps:.0f}\033[0m KB/s ]"
+                )
+            else:
+                print(
+                    f"\r[ Filesize: \033[90;4m{file_size_MB:.2f}\033[0m MB, in \033[90;4m{elapsed_time:.2f}\033[0m s Download Speed: \033[32;4m{download_speed_MBps:.2f}\033[0m MB/s, \033[90;4m{download_speed_KBps:.0f}\033[0m KB/s ]"
+                )
 
             return download_speed_MBps
 
@@ -1512,6 +1561,180 @@ def speedtest():
     except Exception as e:
         print(f"下载错误: {e}")
         return None
+
+
+def single_vpn_main(args):
+    """Connects to the VPN is the given .ovpn file."""
+    vpn = FileVPN(args)
+    try:
+        vpn.connect()
+    except KeyboardInterrupt:
+        logging.error("Aborted")
+
+
+def _try_connect_from_list(
+    vpn_list, list_name, start_index, total_overall_count, logger
+):
+    """Helper function to attempt connecting to VPNs in a list."""
+    connection_established = False
+    if not vpn_list:
+        logger.info(f"No VPNs to try in {list_name} list.")
+        return False
+
+    total_in_list = len(vpn_list)
+    logger.debug(
+        f"Attempting connections from {list_name} list ({total_in_list} VPNs)..."
+    )
+
+    for i, vpn in enumerate(vpn_list):
+        current_overall_index = start_index + i + 1  # 1-based index
+        print(
+            "\033[90m------------------------------------------------------------------+\33[0m"
+        )
+        # Display index within the current list and overall index
+        if total_in_list != total_overall_count:
+            print(
+                f"\033[90m[{list_name} {i + 1}/{total_in_list} ({current_overall_index}/{total_overall_count})]\033[0m {vpn}"
+            )
+        else:
+            print(f"\033[90m[{list_name} {i + 1}/{total_in_list}]\033[0m {vpn}")
+
+        try:
+            # Assuming vpn.connect() returns True if user keeps connection, False otherwise
+            res = vpn.connect()
+            if res:
+                logger.info(f"Connection established and confirmed with: {vpn}")
+                connection_established = True
+                break  # User was happy with this VPN, break the inner loop
+            else:
+                logger.debug(f"Connection attempt declined or failed for: {vpn}")
+                # Continue to the next VPN in the list
+        except KeyboardInterrupt:
+            logger.warning("\nConnection process interrupted by user.")
+            connection_established = (
+                True  # Treat interrupt as a stop signal for further attempts
+            )
+            break
+        except Exception as e:
+            logger.error(f"Error connecting to VPN {vpn}: {e}", exc_info=True)
+            # Continue to the next VPN
+
+    return connection_established
+
+
+def vpn_list_main(args):
+    """Fetches lists of VPNs and connects, prioritizing the qualified list."""
+    logger = logging.getLogger("VPNListMain")  # Use a specific logger or the main one
+    vpnlist = VPNList(args)  # This now loads and filters both lists
+
+    connection_established = False
+    total_qualified = len(vpnlist.qualified_vpns)
+    total_main = len(vpnlist.main_vpns)
+    total_overall = total_qualified + total_main
+
+    if total_overall == 0:
+        logger.warning("No VPNs available after loading and filtering. Exiting.")
+        sys.exit(1)  # Exit if absolutely no VPNs are left
+
+    # 1. Try Qualified VPNs
+    if total_qualified > 0:
+        connection_established = _try_connect_from_list(
+            vpnlist.qualified_vpns,
+            get_text("qualified"),
+            start_index=0,  # Starts from index 0
+            total_overall_count=total_overall,
+            logger=logger,
+        )
+    else:
+        logger.debug("Skipping qualified VPN list as it is empty.")
+
+    # 2. Try Main List VPNs ONLY if no connection was established from the qualified list
+    if not connection_established:
+        if total_main > 0:
+            connection_established = _try_connect_from_list(
+                vpnlist.main_vpns,
+                get_text("main_list"),
+                start_index=total_qualified,  # Index continues from qualified list size
+                total_overall_count=total_overall,
+                logger=logger,
+            )
+        else:
+            logger.info("Skipping main VPN list as it is empty.")
+    else:
+        logger.info(
+            "Connection already established from the qualified list. Skipping main list."
+        )
+
+    # Cleanup
+    try:
+        # Make sure TEMP_DIR is defined
+        if "TEMP_DIR" in globals() and os.path.exists(TEMP_DIR):
+            shutil.rmtree(TEMP_DIR)
+            logger.info(get_text("delete_tmp_dir"))
+        else:
+            logger.debug("TEMP_DIR not found or not defined, skipping cleanup.")
+    except Exception as e:
+        logger.error(get_text("delete_tmp_dir_failed").format(e=e), exc_info=True)
+
+    if not connection_established:
+        logger.warning("Failed to establish a connection with any VPN from any list.")
+
+    logger.info(get_text("exiting"))
+
+
+def isAdmin():
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except Exception:
+        return False
+
+
+def addOpenVPNtoSysPath():
+    """Add OpenVPN binary path to system PATH environment variable."""
+    if sys.platform == "win32":
+        # Windows paths
+        openvpn_paths = [
+            r"C:\Program Files\OpenVPN\bin",
+            r"C:\Program Files (x86)\OpenVPN\bin",
+        ]
+    else:
+        # Linux/macOS paths
+        openvpn_paths = [
+            "/usr/sbin",
+            "/usr/local/sbin",
+            "/usr/bin",
+            "/usr/local/bin",
+        ]
+
+    # Get current PATH
+    current_path = os.environ.get("PATH", "")
+    path_separator = ";" if sys.platform == "win32" else ":"
+    current_paths = current_path.split(path_separator)
+
+    for openvpn_path in openvpn_paths:
+        if os.path.exists(openvpn_path) and openvpn_path not in current_paths:
+            # Add OpenVPN path to PATH
+            os.environ["PATH"] = f"{openvpn_path}{path_separator}{current_path}"
+            print(f"Added {openvpn_path} to PATH environment variable.")
+
+            # Persist PATH changes on Windows
+            if sys.platform == "win32":
+                try:
+                    import winreg
+
+                    with winreg.OpenKey(
+                        winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_SET_VALUE
+                    ) as key:
+                        winreg.SetValueEx(
+                            key, "PATH", 0, winreg.REG_EXPAND_SZ, os.environ["PATH"]
+                        )
+                    print("Environment PATH updated in Registry.")
+                except Exception as e:
+                    print(f"Failed to update Registry: {e}")
+            return True
+
+    print("\033[33mWarning: OpenVPN installation not found in standard paths.\033[0m")
+    return False
 
 
 def parse_args():
@@ -1601,184 +1824,20 @@ def parse_args():
         type=float,
         help=get_text("h_arg_min_speed"),
     )
-
+    p.add_argument(
+        "--qualified-time",
+        "-qt",
+        action="store",
+        default=DEFAULT_QUALIFIED_TIME,
+        type=int,
+        help=get_text("h_arg_qualified_time"),
+    )
     # 覆盖默认的 help 信息
     p._positionals.title = get_text("positional_arguments")
     p._optionals.title = get_text("optional_arguments")
     p._defaults["help"] = get_text("h_help")
 
     return p.parse_args()
-
-
-def single_vpn_main(args):
-    """Connects to the VPN is the given .ovpn file."""
-    vpn = FileVPN(args)
-    try:
-        vpn.connect()
-    except KeyboardInterrupt:
-        logging.error("Aborted")
-
-
-def _try_connect_from_list(
-    vpn_list, list_name, start_index, total_overall_count, logger
-):
-    """Helper function to attempt connecting to VPNs in a list."""
-    connection_established = False
-    if not vpn_list:
-        logger.info(f"No VPNs to try in {list_name} list.")
-        return False
-
-    total_in_list = len(vpn_list)
-    logger.info(
-        f"Attempting connections from {list_name} list ({total_in_list} VPNs)..."
-    )
-
-    for i, vpn in enumerate(vpn_list):
-        current_overall_index = start_index + i + 1  # 1-based index
-        print(
-            "\033[90m-----------------------------------------------------------+\33[0m"
-        )
-        # Display index within the current list and overall index
-        print(
-            f"\033[90m[{list_name} {i+1}/{total_in_list} | Overall {current_overall_index}/{total_overall_count}]\033[0m "
-            f"{vpn}"  # Assuming VPN.__str__ gives useful info (IP, Country)
-        )
-        try:
-            # Assuming vpn.connect() returns True if user keeps connection, False otherwise
-            res = vpn.connect()
-            if res:
-                logger.info(f"Connection established and confirmed with: {vpn}")
-                connection_established = True
-                break  # User was happy with this VPN, break the inner loop
-            else:
-                logger.info(f"Connection attempt declined or failed for: {vpn}")
-                # Continue to the next VPN in the list
-        except KeyboardInterrupt:
-            logger.warning("\nConnection process interrupted by user.")
-            connection_established = (
-                True  # Treat interrupt as a stop signal for further attempts
-            )
-            break
-        except Exception as e:
-            logger.error(f"Error connecting to VPN {vpn}: {e}", exc_info=True)
-            # Continue to the next VPN
-
-    return connection_established
-
-
-def vpn_list_main(args):
-    """Fetches lists of VPNs and connects, prioritizing the qualified list."""
-    logger = logging.getLogger("VPNListMain")  # Use a specific logger or the main one
-    vpnlist = VPNList(args)  # This now loads and filters both lists
-
-    connection_established = False
-    total_qualified = len(vpnlist.qualified_vpns)
-    total_main = len(vpnlist.main_vpns)
-    total_overall = total_qualified + total_main
-
-    if total_overall == 0:
-        logger.warning("No VPNs available after loading and filtering. Exiting.")
-        sys.exit(1)  # Exit if absolutely no VPNs are left
-
-    # 1. Try Qualified VPNs
-    if total_qualified > 0:
-        connection_established = _try_connect_from_list(
-            vpnlist.qualified_vpns,
-            "Qualified",
-            start_index=0,  # Starts from index 0
-            total_overall_count=total_overall,
-            logger=logger,
-        )
-    else:
-        logger.info("Skipping qualified VPN list as it is empty.")
-
-    # 2. Try Main List VPNs ONLY if no connection was established from the qualified list
-    if not connection_established:
-        if total_main > 0:
-            connection_established = _try_connect_from_list(
-                vpnlist.main_vpns,
-                "Main List",
-                start_index=total_qualified,  # Index continues from qualified list size
-                total_overall_count=total_overall,
-                logger=logger,
-            )
-        else:
-            logger.info("Skipping main VPN list as it is empty.")
-    else:
-        logger.info(
-            "Connection already established from the qualified list. Skipping main list."
-        )
-
-    # Cleanup
-    try:
-        # Make sure TEMP_DIR is defined
-        if "TEMP_DIR" in globals() and os.path.exists(TEMP_DIR):
-            shutil.rmtree(TEMP_DIR)
-            logger.info(get_text("delete_tmp_dir"))
-        else:
-            logger.debug("TEMP_DIR not found or not defined, skipping cleanup.")
-    except Exception as e:
-        logger.error(get_text("delete_tmp_dir_failed").format(e=e), exc_info=True)
-
-    if not connection_established:
-        logger.warning("Failed to establish a connection with any VPN from any list.")
-
-    logger.info(get_text("exiting"))
-
-
-def isAdmin():
-    try:
-        return ctypes.windll.shell32.IsUserAnAdmin()
-    except Exception:
-        return False
-
-
-def addOpenVPNtoSysPath():
-    """Add OpenVPN binary path to system PATH environment variable."""
-    if sys.platform == "win32":
-        # Windows paths
-        openvpn_paths = [
-            r"C:\Program Files\OpenVPN\bin",
-            r"C:\Program Files (x86)\OpenVPN\bin",
-        ]
-    else:
-        # Linux/macOS paths
-        openvpn_paths = [
-            "/usr/sbin",
-            "/usr/local/sbin",
-            "/usr/bin",
-            "/usr/local/bin",
-        ]
-
-    # Get current PATH
-    current_path = os.environ.get("PATH", "")
-    path_separator = ";" if sys.platform == "win32" else ":"
-    current_paths = current_path.split(path_separator)
-
-    for openvpn_path in openvpn_paths:
-        if os.path.exists(openvpn_path) and openvpn_path not in current_paths:
-            # Add OpenVPN path to PATH
-            os.environ["PATH"] = f"{openvpn_path}{path_separator}{current_path}"
-            print(f"Added {openvpn_path} to PATH environment variable.")
-
-            # Persist PATH changes on Windows
-            if sys.platform == "win32":
-                try:
-                    import winreg
-
-                    with winreg.OpenKey(
-                        winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_SET_VALUE
-                    ) as key:
-                        winreg.SetValueEx(
-                            key, "PATH", 0, winreg.REG_EXPAND_SZ, os.environ["PATH"]
-                        )
-                    print("Environment PATH updated in Registry.")
-                except Exception as e:
-                    print(f"Failed to update Registry: {e}")
-            return True
-
-    print("\033[33mWarning: OpenVPN installation not found in standard paths.\033[0m")
-    return False
 
 
 def customLogger():
@@ -1856,12 +1915,16 @@ def main():
             )
             exit(1)
 
-    if not isAdmin() and not is_linux:
+    if not isAdmin() and is_windows:
         params = " ".join([f'"{arg}"' for arg in sys.argv])
         ctypes.windll.shell32.ShellExecuteW(
             None, "runas", sys.executable, params, None, 1
         )
         return 1
+    elif is_linux:
+        if os.geteuid() != 0:
+            print(get_text("privileges_check"))
+            return 1
 
     # 自定义输出格式
     customLogger()
