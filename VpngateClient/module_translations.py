@@ -170,7 +170,7 @@ translations = {
         "h_arg_iptables": "设置 iptables 规则以阻止非 VPN 流量",
         "h_arg_probe_timeout": "探测时，等待连接的时间，超时后标记该 VPN 为不可用（以秒为单位）。",
         "h_arg_url": "VPN 列表的 URL（csv）。",
-        "h_arg_us": "将美国添加到可能的国家列表中。简写为 -c US。",
+        "h_arg_us": "将美国添加到可能的国家列表中. 等价于 --country US。",
         "h_arg_verbose": "输出更多详细信息。",
         "h_arg_vpn_timeout": "等待 VPN 建立连接的时间，超时后放弃（以秒为单位）。",
         "h_arg_vpn_timeout_poll_interval": "两次检查潜在超时的时间间隔（以秒为单位）。",

@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=42", "setuptools-scm", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "VpngateClient"
+description = "A VPN client for connecting to VPNGate servers."
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.3"
+keywords = ["vpn", "openvpn", "client"]
+license = "MIT"
+authors = [{ name = "Sinspired", email = "ggmomo@gmail.com" }]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Operating System :: OS Independent",
+]
+dynamic = ["version"]
+
+[project.optional-dependencies]
+windows = ["colorama"]
+
+[project.scripts]
+vpngateclient = "VpngateClient.VpngateClient:main"
+vpngate = "VpngateClient.VpngateClient:main"
+
+[tool.setuptools]
+packages = { find = {} }
+
+[tool.setuptools_scm]
+version_scheme = "guess-next-dev"
+local_scheme = "node-and-date"
+fallback_version = "1.1.0"
+
+[project.urls]
+homepage = "https://github.com/sinspired/VpngateClient"
+documentation = "https://github.com/sinspired/VpngateClient/wiki"
+repository = "https://github.com/sinspired/VpngateClient"
+issues = "https://github.com/sinspired/VpngateClient/issues"
