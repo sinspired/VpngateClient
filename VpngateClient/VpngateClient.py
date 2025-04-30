@@ -160,15 +160,16 @@ class VPNClient:
         self.firewall = FirewallManager(self.ip, IPv4_COMMANDS, IPv6_COMMANDS)
 
     def is_listening(self):
-        """Probes the VPN endpoint to see if it's listening."""
+        """Probes the VPN endpoint to see if it's listening and measures latency."""
         if not self.ip or not self.port:
             self.log.error("Cannot probe VPN without IP and Port.")
-            return False
+            return False, float("inf")  # Return infinite latency if invalid
+
         if self.proto == "udp":
-            # TODO: Implement udp probing.
             self.log.debug(get_text("cant_probe_udp"))
-            # Returning True for UDP might be misleading, consider returning None or specific state
-            return True  # Keep original behavior for now
+            return True, float(
+                "inf"
+            )  # UDP probing not implemented, return high latency
 
         self.log.debug(get_text("probing_vpn"))
 
@@ -177,27 +178,32 @@ class VPNClient:
         s.settimeout(self.args.probe_timeout)
 
         try:
+            # Measure start time
+            start_time = time.time()
+
             # Try to connect to the VPN endpoint.
             s.connect((self.ip, int(self.port)))  # Ensure port is int
             s.shutdown(socket.SHUT_RDWR)
+
+            # Measure end time and calculate latency
+            latency = (time.time() - start_time)*1000
+            self.log.debug(f"VPN is listening. Latency: {latency:.0f} milliseconds.")
+            return True, latency
         except socket.timeout:
             self.log.debug(get_text("vpn_not_responding"))
-            return False
+            return False, float("inf")
         except (
             ConnectionRefusedError,
             OSError,
             socket.gaierror,
-        ) as e:  # Added gaierror for DNS issues
+        ) as e:
             self.log.debug(f"{get_text('connection_failed')}: {e}")
-            return False
-        except Exception as e:  # Catch unexpected errors
+            return False, float("inf")
+        except Exception as e:
             self.log.exception(f"Unexpected error during probing: {e}")
-            return False
+            return False, float("inf")
         finally:
             s.close()  # Ensure socket is closed
-
-        self.log.debug(get_text("vpn_listening"))
-        return True
 
     def connect(self):
         """Initiates and manages the connection to this VPN server.
@@ -1443,11 +1449,9 @@ class VPNList:
             filters.append(lambda vpn: vpn.country_code != "CN")
 
     def filter_unresponsive_vpns(self):
-        """Probes VPN servers and removes unresponsive ones from both lists."""
+        """Probes VPN servers, measures latency, and removes unresponsive ones."""
         self.log.info(get_text("filtering_servers"))
 
-        # Combine lists for probing, but keep track of origin if needed,
-        # or just probe all and filter originals later.
         vpns_to_probe = self.qualified_vpns + self.main_vpns
 
         if not vpns_to_probe:
@@ -1455,47 +1459,37 @@ class VPNList:
             return
 
         n = self.args.probes  # Number of concurrent probes
-        responding_vpns = set()  # Use a set for efficient lookup
+        responding_vpns = []
 
         self.log.info(get_text("probing_vpns_concurrently"), len(vpns_to_probe), n)
         with concurrent.futures.ThreadPoolExecutor(max_workers=n) as ex:
-            # Assuming vpn.is_listening() is defined in your VPN class
-            # and returns True/False
             futures = {ex.submit(vpn.is_listening): vpn for vpn in vpns_to_probe}
 
             for future in concurrent.futures.as_completed(futures):
                 vpn = futures[future]
                 try:
-                    if future.result():  # True if the VPN responded
-                        responding_vpns.add(vpn)  # Add the VPN object itself
+                    is_responding, latency = future.result()
+                    if is_responding:
+                        responding_vpns.append((vpn, latency))
                 except Exception as e:
-                    # Log the specific VPN that failed if possible
-                    # You might need to add identifier attributes to your VPN class
-                    self.log.exception(
-                        f"Availability probe failed for a VPN (details might require VPN ID): {e}"
-                    )
+                    self.log.exception(f"Availability probe failed for a VPN: {e}")
 
-        self.log.debug(get_text("found_responding_vpns"), len(responding_vpns))
+        # Sort responding VPNs by latency
+        responding_vpns.sort(key=lambda x: x[1])  # Sort by latency (ascending)
 
-        # Filter the original lists
-        orig_qualified_count = len(self.qualified_vpns)
-        orig_main_count = len(self.main_vpns)
-
-        # Keep only those VPNs that are present in the responding set
+        # Update the lists with sorted VPNs
         self.qualified_vpns = [
-            vpn for vpn in self.qualified_vpns if vpn in responding_vpns
+            vpn for vpn, _ in responding_vpns if vpn in self.qualified_vpns
         ]
-        self.main_vpns = [vpn for vpn in self.main_vpns if vpn in responding_vpns]
+        self.main_vpns = [vpn for vpn, _ in responding_vpns if vpn in self.main_vpns]
 
         self.log.debug(
-            "Qualified VPNs after responsiveness filter: %s (from %s)",
+            "Qualified VPNs after responsiveness filter: %s",
             len(self.qualified_vpns),
-            orig_qualified_count,
         )
         self.log.debug(
-            "Main list VPNs after responsiveness filter: %s (from %s)",
+            "Main list VPNs after responsiveness filter: %s",
             len(self.main_vpns),
-            orig_main_count,
         )
 
 
