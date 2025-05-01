@@ -8,7 +8,6 @@ import logging
 import os
 import platform
 import re
-import select
 import shutil
 import signal
 import socket
@@ -32,14 +31,21 @@ else:
     from .module_translations import get_text
     from .user_data_manager import UserDataManager
 
+logger = logging.getLogger()
+
+is_linux = platform.system() == "Linux"
+is_windows = platform.system() == "Windows"
+
 # The URL for the VPN list
 VPN_LIST_URL = "https://www.vpngate.net/api/iphone/"
 SPEED_TEST_URL = "http://ipv4.download.thinkbroadband.com/50MB.zip"
 # SPEED_TEST_URL = "https://cachefly.cachefly.net/50mb.test"
 LOCAL_CSV_NAME = "servers.csv"
-DEFAULT_EXPIRED_TIME = 4
-DEFAULT_MIN_SPEED = 0.01
+DEFAULT_EXPIRED_TIME = 1
+DEFAULT_MIN_SPEED = 0.00
 DEFAULT_QUALIFIED_TIME = 5
+DEFAULT_VPN_TIMEOUT = 8 if is_windows else 5
+
 # The app running with temp\cahe\config DIRs,automatic with promission and exists
 APP_RUNNING_DIR = UserDataManager("VpngateClient")
 
@@ -47,10 +53,6 @@ TEMP_DIR = APP_RUNNING_DIR.temp_dir
 CACHE_DIR = APP_RUNNING_DIR.cache_dir
 CONFIG_DIR = APP_RUNNING_DIR.config_dir
 
-is_linux = platform.system() == "Linux"
-is_windows = platform.system() == "Windows"
-
-logger = logging.getLogger()
 EU_COUNTRIES = [
     ["AL", "AT", "BA", "BE", "BG", "CH", "CY", "DE", "DK", "EE", "SI"],
     ["ES", "FI", "FR", "GB", "GR", "HR", "HU", "IE", "IS", "IT", "SE"],
@@ -186,8 +188,8 @@ class VPNClient:
             s.shutdown(socket.SHUT_RDWR)
 
             # Measure end time and calculate latency
-            latency = (time.time() - start_time)*1000
-            self.log.debug(f"VPN is listening. Latency: {latency:.0f} milliseconds.")
+            latency = (time.time() - start_time) * 1000
+            self.log.debug(get_text("vpn_listening"), f"{latency:.0f} ms")
             return True, latency
         except socket.timeout:
             self.log.debug(get_text("vpn_not_responding"))
@@ -780,15 +782,15 @@ class VPNClient:
             "2",
             # Retry/timeout settings (consider adjusting based on typical connection times)
             "--connect-retry-max",
-            "2",  # Max connection attempts before failing
+            "4",  # Max connection attempts before failing
             # "--connect-timeout", "10", # Timeout for initial TCP/UDP connection (seconds) - was 3
             # "--server-poll-timeout", "10", # How long to wait for server response after connection
             "--connect-timeout",
             str(self.args.vpn_timeout),  # Use arg if available
             # Ping settings for keepalive and detecting dead connections
             "--keepalive",
-            "1",
-            "4",  # Ping every 10s, assume dead after 60s silence
+            "5",
+            "30",  # Ping every 10s, assume dead after 60s silence
             # Use ping-exit/restart instead of keepalive if preferred (original code used them)
             # "--ping-exit", "60", # Exit after 60 seconds of ping timeout (was 3) - Increased
             # "--ping-restart", # Restart if ping fails for 180s (higher than exit) - Adjust if needed (was 3)
@@ -925,35 +927,61 @@ class VPNClient:
             (boolean) True if the users wants to use this VPN (or timeout),
                       False if not (e.g., presses Ctrl+C or types 'n').
         """
-        print(
-            get_text("use_or_change") + " \033[90m(5 秒)\033[0m", end="\r"
-        )  # Indicate timeout
-
+        timeout = 5
         try:
-            # Use select to wait for input on stdin with a timeout
-            # select works reliably on Unix-like systems (Linux, macOS)
-            # On Windows, select only works reliably for sockets, not stdin in console.
-            # A threading approach might be needed for cross-platform timeout on input().
-            # Assuming Linux/macOS for select usage here:
-            if sys.stdin.isatty():  # Check if running in an interactive terminal
-                rlist, _, _ = select.select([sys.stdin], [], [], 5)  # 5 second timeout
-                if rlist:
-                    # Input is available, read it (usually Enter key)
-                    response = sys.stdin.readline().strip().lower()
-                    if response in ["n", "no", "q", "quit"]:
-                        return False  # User explicitly said no
-                    # Any other input (including just Enter) means yes
-                    return True
-                else:
-                    # Timeout occurred
+            if sys.platform == "win32":
+                import msvcrt
+
+                input_str = ""
+                for remaining in range(timeout, 0, -1):
                     print(
-                        "\r自动确认，进入连接监测模式. ", end="\r", flush=True
-                    )  # Inform user
-                    return True  # Default to yes on timeout
-            else:
-                # Not an interactive terminal (e.g., piped input), default to yes
-                self.log.info("Non-interactive session, assuming 'yes' for VPN prompt.")
+                        f"\r{get_text('use_or_change')} \033[90m({remaining} 秒, 输入 n 跳过)\033[0m",
+                        end="",
+                        flush=True,
+                    )
+                    start_time = time.time()
+                    while time.time() - start_time < 1:
+                        if msvcrt.kbhit():
+                            ch = msvcrt.getwch()
+                            if ch in ("\r", "\n"):
+                                print()
+                                response = input_str.strip().lower()
+                                if response in ["n", "no", "q", "quit"]:
+                                    return False
+                                return True
+                            elif ch in ("\x03", "\x1a"):
+                                print()
+                                raise KeyboardInterrupt
+                            elif ch == "\b":
+                                input_str = input_str[:-1]
+                            else:
+                                input_str += ch
+                        time.sleep(0.05)
+                print("\r自动确认，进入连接监测模式. ", end="\r", flush=True)
                 return True
+            else:
+                if sys.stdin.isatty():
+                    import select
+
+                    print(
+                        f"\r{get_text('use_or_change')} \033[90m({timeout} 秒, 输入 n 跳过)\033[0m",
+                        end="",
+                        flush=True,
+                    )
+                    rlist, _, _ = select.select([sys.stdin], [], [], timeout)
+                    if rlist:
+                        response = sys.stdin.readline().strip().lower()
+                        if response in ["n", "no", "q", "quit"]:
+                            return False
+                        return True
+                    else:
+                        print("\r自动确认，进入连接监测模式. ", end="\r", flush=True)
+                        return True
+                else:
+                    self.log.info(
+                        "Non-interactive session, assuming 'yes' for VPN prompt."
+                    )
+                    return True
 
         except KeyboardInterrupt:
             print()  # Newline after prompt
@@ -1474,8 +1502,10 @@ class VPNList:
                 except Exception as e:
                     self.log.exception(f"Availability probe failed for a VPN: {e}")
 
-        # Sort responding VPNs by latency
-        responding_vpns.sort(key=lambda x: x[1])  # Sort by latency (ascending)
+        # 根据命令行参数决定是否排序
+        if getattr(self.args, "sort_latency", False):
+            self.log.info(get_text("h_arg_sort_latency"))
+            responding_vpns.sort(key=lambda x: x[1])  # Sort by latency (ascending)
 
         # Update the lists with sorted VPNs
         self.qualified_vpns = [
@@ -1798,7 +1828,7 @@ def parse_args():
     p.add_argument(
         "--vpn-timeout",
         action="store",
-        default=5,
+        default=DEFAULT_VPN_TIMEOUT,
         type=int,
         help=get_text("h_arg_vpn_timeout"),
     )
@@ -1837,6 +1867,12 @@ def parse_args():
         default=DEFAULT_QUALIFIED_TIME,
         type=int,
         help=get_text("h_arg_qualified_time"),
+    )
+    p.add_argument(
+        "--sort-latency",
+        "-s",
+        action="store_true",
+        help="h_arg_sort_latency",
     )
     # 覆盖默认的 help 信息
     p._positionals.title = get_text("positional_arguments")
