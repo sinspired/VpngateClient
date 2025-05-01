@@ -89,6 +89,7 @@ translations = {
         "h_arg_expired_time": "Time to wait for a ServersList to be expired (hour).",
         "h_arg_min_speed": "Minimum download speed (MB/s).",
         "h_arg_qualified_time": "After a stable connection for a period of time, save the server information to the favorite configuration for the next priority load (minutes)",
+        "h_arg_sort_latency": "Sort available VPNs in ascending order",
     },
     "zh": {
         # info
@@ -151,11 +152,11 @@ translations = {
         "delete_tmp_dir_failed": "临时文件夹删除失败",
         "exiting": "\033[31m退出程序...\033[0m",
         # debug
-        "probing_vpn": "正在探测VPN端点",
-        "cant_probe_udp": "无法探测UDP服务器",
-        "vpn_not_responding": "VPN端点未响应连接",
+        "probing_vpn": "正在探测 VPN 端点",
+        "cant_probe_udp": "无法探测 UDP 服务器",
+        "vpn_not_responding": "VPN 端点未响应连接",
         "connection_failed": "连接失败",
-        "vpn_listening": "VPN端点正在监听",
+        "vpn_listening": "VPN 正在监听，延迟 %s",
         # warning
         "Speedtest failed or returned error. Monitoring connection before prompting.": "速度检测出错,继续检查状态文件",
         # 帮助信息
@@ -178,6 +179,7 @@ translations = {
         "h_arg_expired_time": "等待服务器列表过期的时间, 单位: 小时。",
         "h_arg_min_speed": "最低下载速度, 单位: MB/s。",
         "h_arg_qualified_time": "稳定连接一段时间后,保存服务器信息到收藏配置以供下次优先加载,单位: 分钟",
+        "h_arg_sort_latency": "对可用VPN按延迟升序排序",
     },
 }
 
