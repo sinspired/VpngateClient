@@ -60,10 +60,10 @@ jobs:
         shell: pwsh
         run: |
           # build onefile exec file
-          pyinstaller --onefile --clean --uac-admin --name VpngateClient-${{ matrix.platform }}-${{ matrix.arch }} --icon VpngateClient/logo.ico VpngateClient/VpngateClient.py
+          pyinstaller --onefile --clean --uac-admin --paths VpngateClient --name VpngateClient-${{ matrix.platform }}-${{ matrix.arch }} --icon VpngateClient/logo.ico VpngateClient/VpngateClient.py
 
           # build onedir portable files
-          pyinstaller --onedir --clean --uac-admin --name VpngateClient-${{ matrix.platform }}-${{ matrix.arch }}-Portable --icon VpngateClient/logo.ico VpngateClient/VpngateClient.py
+          pyinstaller --onedir --clean --uac-admin --paths VpngateClient --name VpngateClient-${{ matrix.platform }}-${{ matrix.arch }}-Portable --icon VpngateClient/logo.ico VpngateClient/VpngateClient.py
 
           # zip portable folder
           $outdir = "dist\VpngateClient-${{ matrix.platform }}-${{ matrix.arch }}-Portable"
@@ -77,7 +77,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ruby ruby-dev rubygems build-essential
           sudo gem install --no-document fpm
-          pyinstaller --onefile --clean ${{ matrix.pyinstaller-arch }} --name VpngateClient-${{ matrix.platform }}-${{ matrix.arch }} --icon VpngateClient/logo.png VpngateClient/VpngateClient.py
+          pyinstaller --onefile --clean ${{ matrix.pyinstaller-arch }} --paths VpngateClient --name VpngateClient-${{ matrix.platform }}-${{ matrix.arch }} --icon VpngateClient/logo.png VpngateClient/VpngateClient.py
 
       - name: Build Linux DEB Package
         if: matrix.os == 'ubuntu-latest'
@@ -103,7 +103,7 @@ jobs:
         if: matrix.os == 'macos-latest'
         shell: bash
         run: |
-          pyinstaller --onefile --clean ${{ matrix.pyinstaller-arch }} --name VpngateClient-${{ matrix.platform }}-${{ matrix.arch }} --icon VpngateClient/logo.icns VpngateClient/VpngateClient.py
+          pyinstaller --onefile --clean ${{ matrix.pyinstaller-arch }} --paths VpngateClient --name VpngateClient-${{ matrix.platform }}-${{ matrix.arch }} --icon VpngateClient/logo.icns VpngateClient/VpngateClient.py
 
       - name: Package macOS App and DMG
         if: matrix.os == 'macos-latest'
@@ -197,7 +197,7 @@ jobs:
           else
             RANGE=""
           fi
-          
+
           # 使用 **%s** 渲染标题为粗体，%n%n 保留空行，然后 %b 输出正文
           # 1) 不带 prefix 的标题行：整行包裹
           # 2) 带 prefix 的标题行：只加粗 prefix 并保留余下文字
