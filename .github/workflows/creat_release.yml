@@ -167,6 +167,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check and delete existing release
+        id: check_release
+        run: |
+          if gh release view ${{ github.ref_name }} &> /dev/null; then
+            echo "正在删除已存在的发布..."
+            gh release delete ${{ github.ref_name }} --yes
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -187,8 +197,14 @@ jobs:
             | grep -v "^${{ github.ref_name }}$" \
             | head -n1)
           echo "prev_tag=${PREV_TAG}" >> $GITHUB_OUTPUT
-        shell: bash
 
+      - name: Generate a changelog
+        uses: orhun/git-cliff-action@v4
+        id: git-cliff
+        with:
+          config: cliff.toml
+          args: -v --latest --strip header
+          
       - name: Get full changelog since previous tag
         id: changelog
         run: |
@@ -217,16 +233,6 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
         shell: bash
 
-      - name: Check and delete existing release
-        id: check_release
-        run: |
-          if gh release view ${{ github.ref_name }} &> /dev/null; then
-            echo "正在删除已存在的发布..."
-            gh release delete ${{ github.ref_name }} --yes
-          fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Pre-release Check
         id: pre_release_check
         run: |
@@ -254,11 +260,11 @@ jobs:
 
           cat > RELEASE_NOTES.md <<'EOF'
 
-          ## 📝 Changelog
+          # 📝 Changelog
 
-          ${{ steps.changelog.outputs.changelog }}
+          ${{ steps.git-cliff.outputs.content }}
 
-          ## 📦 Downloads
+          # 📦 Downloads
 
           | Platform | File |
           |----------|------|
@@ -271,14 +277,14 @@ jobs:
           | macOS amd64 | [![macOS amd64](https://img.shields.io/badge/DMG-Intel_amd64-%2300A9E0.svg?logo=apple)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/VpngateClient-macOS-amd64.dmg) |
           | macOS arm64 | [![macOS arm64](https://img.shields.io/badge/DMG-Apple_Silicon-%23000000.svg?logo=apple)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/VpngateClient-macOS-arm64.dmg) |
 
-          ## 🔧 Installation
+          # 🔧 Installation
 
-          ### Windows
+          ## Windows
           - Single file: Download `.exe` and run directly
-          - Portable: Download `.zip`, extract and run `VpngateClient-Windows-Portable-x64.exe`
+          - Portable: Download `.zip`, extract and run `VpngateClient-Windows-x64-Portable.exe`
           - Require admin privileges, allow it
 
-          ### Linux
+          ## Linux
           - Executable: 
             Download and `chmod +x VpngateClient-Linux-amd64` or `VpngateClient-Linux-arm64`
             run `sudo ./VpngateClient-Linux-amd64`
@@ -286,7 +292,7 @@ jobs:
           - DEB: 
             `sudo dpkg -i VpngateClient-Linux-amd64.deb` or `VpngateClient-Linux-arm64.deb`
 
-          ### macOS
+          ## macOS
           - Download `.dmg`, open and drag app to Applications
 
           EOF
