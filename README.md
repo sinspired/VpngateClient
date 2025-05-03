@@ -1,72 +1,104 @@
+# VpngateClient
+
 A client for connecting to [vpngate.net](http://vpngate.net) OpenVPN servers.
 
-**Features**:
+[![Release Version](https://img.shields.io/github/v/release/sinspired/VpngateClient?display_name=tag&logo=github&label=Release)](https://github.com/sinspired/VpngateClient/releases/latest)
+[![GitHub repo size](https://img.shields.io/github/repo-size/sinspired/VpngateClient?logo=github)
+](https://github.com/sinspired/VpngateClient)
+[![GitHub last commit](https://img.shields.io/github/last-commit/sinspired/VpngateClient?logo=github&label=最后提交：)](https://github.com/sinspired/VpngateClient)
 
-- filters VPN servers by their geographical location (country or VPNs in Europe)
-- probes the VPN endpoints to detect ones that aren't responding for some reason
-  before connecting to the VPN server
-- once connected, performs a speed-test for the VPN and lets you decide if the
-  speed is good enough for you or if you want to try the next one on the list
+## Features
+
+- Filter VPN servers by geographical location (country or Europe)
+- Probe VPN endpoints to skip unresponsive servers before connecting
+- Perform a speed test after connecting, so you can decide to keep or try the next server
+- If a server running stable for 5 minutues, save it in a qualified lists
 
 ## Dependencies
 
-This client has following dependencies:
-
-- [python](https://python.org) (at least v3.3)
+- [Python](https://python.org) (>= 3.3)
 - [OpenVPN](https://openvpn.net/)
+
+---
 
 ## Usage
 
-### Install for Windows
+> [!NOTE]
+> You must run as Administrator (Windows) or with `sudo` (Linux) to allow OpenVPN to work properly.
 
-```powershell
-  git clone https://github.com/sinspired/VpngateClient.git
-  cd VpngateClient
-  sudo pip install -e .
-  sudo vpngate
+For all options, run: `vpngate --help`
+
+### 🐧 Install for Linux
+
+```bash
+git clone https://github.com/sinspired/VpngateClient.git
+cd VpngateClient
+sudo pip install -e .
+sudo vpngate
 ```
 
-Note: `sudo vpngate -h` for help
+### 🪟 Install for Windows
 
-### Install for Development
+Open **PowerShell** or **CMD** as Administrator, then:
 
-If you are using a system-managed Python environment (e.g., on Ubuntu), you may encounter restrictions when installing packages system-wide. To install in development mode, you can use the following command:
+```powershell
+git clone https://github.com/sinspired/VpngateClient.git
+cd VpngateClient
+pip install -e .
+vpngate
+```
+
+### 🛠️ Install for Development
+
+If you are using a system-managed Python environment (e.g., on Ubuntu), you may encounter restrictions when installing packages system-wide. To install in development mode, use:
 
 ```bash
 sudo pip install -e . --break-system-packages
 ```
 
-**Warning**: Using `--break-system-packages` may affect your system's Python environment. If you prefer a safer approach, consider using a virtual environment.
+> **Warning:** Using `--break-system-packages` may affect your system's Python environment.  
+> For a safer approach, consider using a virtual environment.
 
-### Simple Case
+---
 
-Note: `sudo` is required for OpenVPN.
+### 🚀 Simple Usage
 
-```shell
-  chmod +x ./VpngateClient/VpngateClient.py
-  sudo ./VpngateClient/VpngateClient.py
-````
+Try VPN servers one-by-one, default sorted by score, or sorted by latency( `-s` ):
 
-This tries the VPN servers one-by-one ordered by their latency and asks you to
-choose the one you like.
-
-### Filter by Country
-
-```shell
-  sudo ./VpngateClient/VpngateClient.py --country CA
-  sudo ./VpngateClient/VpngateClient.py --us # --us is a shorthand for --country US
+```bash
+chmod +x ./VpngateClient/VpngateClient.py
+sudo ./VpngateClient/VpngateClient.py  # -s to sort by latency
 ```
 
-The above command only considers VPN servers in Canada. The country identifier is a 2 digit code (ISO 3166-2).
+---
 
-### VPNs in Europe
+### 🌎 Filter by Country
 
-```shell
-  sudo ./VpngateClient/VpngateClient.py --eu
+Only consider VPN servers in a specific country (e.g., Canada):
+
+```bash
+sudo ./VpngateClient/VpngateClient.py --country CA  # -c CA
+sudo ./VpngateClient/VpngateClient.py --us  # --us is a shorthand for --country US
 ```
 
-As a special case, the `--eu` flag only considers VPN servers in Europe.
+The country identifier is a 2-letter code (ISO 3166-1 alpha-2).
 
-### Other Options
+---
 
-All the command line options are available by running `sudo vpngate --help`.
+### 🇪🇺 VPNs in Europe
+
+Only consider VPN servers in Europe:
+
+```bash
+sudo ./VpngateClient/VpngateClient.py --eu
+```
+
+---
+
+### 📝 Other Options
+
+See all command line options:
+
+```bash
+sudo vpngate --help
+```
