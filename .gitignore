@@ -47,3 +47,9 @@ debian
 debian/hello
 debian/files
 debian/vpngate-client/
+
+# semantic release
+.releaserc*
+package-lock.json
+package.json
+node_modules
