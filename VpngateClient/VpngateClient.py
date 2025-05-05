@@ -244,9 +244,12 @@ class VPNClient:
                 self.log.debug(get_text("writing_config") % conf_file.name)
                 conf_file.write(self.config)
                 # Add required options reliably
-                conf_file.write("\ndata-ciphers AES-128-CBC\n")  # Ensure newline before
+                conf_file.write("\ncipher AES-128-CBC\n")  # 兼容旧版
+                conf_file.write("data-ciphers AES-128-CBC\n")  # 兼容新版
                 conf_file.write("remote-cert-tls server\n")
                 conf_file.write("disable-dco\n")
+
+                conf_file.write("tls-version-min 1.2\n")  # 推荐最低TLS1.2
                 # Ensure buffer is written
                 conf_file.flush()
                 # File closed automatically by 'with' statement
