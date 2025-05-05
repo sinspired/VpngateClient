@@ -41,11 +41,11 @@ VPN_LIST_URL = "https://www.vpngate.net/api/iphone/"
 SPEED_TEST_URL = "http://ipv4.download.thinkbroadband.com/50MB.zip"
 # SPEED_TEST_URL = "https://cachefly.cachefly.net/50mb.test"
 LOCAL_CSV_NAME = "servers.csv"
-DEFAULT_EXPIRED_TIME = 0.15
-DEFAULT_MIN_SPEED = 0.00
-SET_UDP_LATENCY = 60
-DEFAULT_QUALIFIED_TIME = 5
-DEFAULT_VPN_TIMEOUT = 9 if is_windows else 4
+DEFAULT_EXPIRED_TIME = 0.15  # hours
+DEFAULT_MIN_SPEED = 0.00  # MB/s
+SET_UDP_LATENCY = 60  # ms millisecond
+DEFAULT_QUALIFIED_TIME = 5  # minutes
+DEFAULT_VPN_TIMEOUT = 9 if is_windows else 4  # second
 
 # The app running with temp\cahe\config DIRs,automatic with promission and exists
 APP_RUNNING_DIR = UserDataManager("VpngateClient")
@@ -493,6 +493,15 @@ class VPNClient:
             else:
                 return f"{speed_mbps:.2f} MB/s"
 
+        def format_download_data(download_data_mb):
+            """Formats download data in MB GB or KB."""
+            if download_data_mb > 1024:
+                return f"{download_data_mb / 1024:.2f} GB"
+            elif download_data_mb < 1:
+                return f"{download_data_mb * 1024:.0f} KB"
+            else:
+                return f"{download_data_mb:.0f} MB"
+
         def format_elapsed_time(elapsed_time_second):
             """Formats elapsed time from seconds to a human-readable string."""
             f_elapsed_time = timedelta(seconds=int(elapsed_time_second))
@@ -523,7 +532,6 @@ class VPNClient:
 
                 # Handle delayed prompt if needed
                 if require_delayed_prompt and elapsed_time > 15:
-                    print()  # 新行
                     print("\r连接保持 15 秒,也许可用...", end="\r")
                     use_this_vpn = self.prompt_use_vpn()
                     require_delayed_prompt = False  # Prompt only once
@@ -586,15 +594,16 @@ class VPNClient:
                     )
 
                     # Convert bytes per interval to MB/s
+                    download_data_mb = current_stats["tun_tap_write"] / (1024 * 1024)
                     read_speed_mbps = (bytes_read / read_interval) / (1024 * 1024)
                     write_speed_mbps = (bytes_written / read_interval) / (1024 * 1024)
 
                     # Print status
                     if write_speed_mbps >= 0 and read_speed_mbps >= 0:
                         print(
-                            f"\r - {get_text("connected")}: {format_elapsed_time(elapsed_time):>7s} | "
-                            f"{get_text("download")}: {current_stats['tun_tap_write']/(1024*1024):.0f} MB | "
-                            f"{get_text("down")}: {format_speed(write_speed_mbps):>11s} | "
+                            f"\r \033[90m-\033[0m {get_text("connected")}: {format_elapsed_time(elapsed_time):>7s} \033[90m|\033[0m "
+                            f"{get_text("download")}: {format_download_data(download_data_mb):>4s} \033[90m|\033[0m "
+                            f"{get_text("down")}: {format_speed(write_speed_mbps):>11s} \033[90m|\033[0m "
                             f"{get_text("up")}: {format_speed(read_speed_mbps):>11s}",
                             end="",
                             flush=True,
@@ -927,7 +936,7 @@ class VPNClient:
                         # proc.stdout.close() # Reconsider closing stdout
                         for remaining in range(10, 0, -1):
                             print(
-                                f"\033[90m等待网络设置完成 ({remaining}s)...\033[0m",
+                                f"\033[90m等待网络设置完成(\033[32m{remaining}\033[0m\033[90m)...\033[0m",
                                 end="\r",
                             )
                             time.sleep(1)  # 每秒更新倒计时
@@ -984,7 +993,7 @@ class VPNClient:
                 input_str = ""
                 for remaining in range(timeout, 0, -1):
                     print(
-                        f"\r{get_text('use_or_change')} \033[90m({remaining} 秒)\033[0m",
+                        f"\r{get_text('use_or_change')} \033[90m(\033[0m\033[32m{remaining}\033[0m \033[90m秒)\033[0m",
                         end="",
                         flush=True,
                     )
@@ -1013,7 +1022,7 @@ class VPNClient:
                     import select
 
                     print(
-                        f"\r{get_text('use_or_change')} \033[90m({timeout} 秒)\033[0m",
+                        f"\r{get_text('use_or_change')} \033[90m(\033[0m\033[32m{remaining}\033[0m \033[90m秒)\033[0m",
                         end="",
                         flush=True,
                     )
@@ -1158,11 +1167,15 @@ class VPNClient:
 
             if download_speed_MBps is None:
                 # Requirement 2: Handle specific error code
-                print("\033[30m" + get_text("error_download_speed") + "\033[0m")
+                print(
+                    "\033[30m" + get_text("error_download_speed") + "\033[0m", end="\r"
+                )
                 return "error"  # Special return value for this case
             if download_speed_MBps == "error":
                 # Requirement 2: Handle specific error code
-                print("\033[31m" + get_text("failed_download_speed") + "\033[0m")
+                print(
+                    "\033[31m" + get_text("failed_download_speed") + "\033[0m", end="\r"
+                )
                 return False
             elif download_speed_MBps < self.args.min_speed:
                 print(
@@ -1676,13 +1689,13 @@ def speedtest():
             return download_speed_MBps
 
     except urllib.error.HTTPError as e:
-        print(f"\033[90m下载失败，HTTP错误: {e.code} - {e.reason}\033[0m")
+        print(f"\033[90m下载失败，HTTP错误: {e.code} - {e.reason}  \033[0m")
         return None
     except urllib.error.URLError as e:
-        print(f"\033[90m下载失败，URL错误: {e.reason}\033[0m")
+        print(f"\033[90m下载失败，URL错误: {e.reason}               \033[0m")
         return None
     except socket.timeout:
-        print("\033[90m下载失败，连接超时                       \033[0m")
+        print("\033[90m下载失败，连接超时                         \033[0m")
         return None
     except Exception as e:
         print(f"\033[90m下载错误: {e}\033[0m")
@@ -1721,10 +1734,12 @@ def _try_connect_from_list(
         # Display index within the current list and overall index
         if total_in_list != total_overall_count:
             print(
-                f"\033[90m[{list_name} {i + 1}/{total_in_list} ({current_overall_index}/{total_overall_count})]\033[0m {vpn}\033[90m"
+                f"[\033[32m{list_name} {i + 1}\033[0m\033[90m/\033[0m\033[32m{total_in_list}\033[0m] \033[90m{current_overall_index}/{total_overall_count}\033[0m {vpn}\033[90m"
             )
         else:
-            print(f"\033[90m[{list_name} {i + 1}/{total_in_list}]\033[0m {vpn}\033[90m")
+            print(
+                f"[\033[32m{list_name} {i + 1}\033[0m\033[90m/\033[0m\033[32m{total_in_list}\033[0m] {vpn}\033[90m"
+            )
 
         try:
             # Assuming vpn.connect() returns True if user keeps connection, False otherwise
@@ -1764,9 +1779,7 @@ def vpn_list_main(args):
     total_overall = total_qualified + total_main
 
     if total_overall == 0:
-        logger.warning(
-            get_text("No VPNs available after loading and filtering. Exiting.")
-        )
+        logger.warning("\033[31m" + get_text("no_vpns_after_filter") + "\033[0m")
         sys.exit(1)  # Exit if absolutely no VPNs are left
 
     # 1. Try Qualified VPNs
