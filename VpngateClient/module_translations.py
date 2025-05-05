@@ -64,12 +64,19 @@ translations = {
         "exiting": "\033[31mExiting...\033[0m",
         # debug输出
         "probing_vpn": "Probing VPN endpoint",
-        "cant_probe_udp": "Can't probe UDP servers",
+        "cant_probe_udp": "Can't probe UDP servers, set lateny as %s ms, to sort it first",
         "vpn_not_responding": "VPN endpoint did not respond to connection",
         "connection_failed": "Connection failed",
         "vpn_listening": "VPN endpoint is listening",
         # warning
         "Speedtest failed or returned error. Monitoring connection before prompting.": "Speedtest failed or returned error. Monitoring connection before prompting.",
+        # OpenVPN/环境相关
+        "openvpn_not_installed": "\033[31mOpenVPN is not installed on this system or added in system PATH.\033[0m",
+        "add_openvpn_path": "Added %s to PATH environment variable.",
+        "env_path_updated": "Environment PATH updated in Registry.",
+        "failed_update_registry": "Failed to update Registry: %s",
+        "openvpn_not_found_standard": "\033[33mWarning: OpenVPN installation not found in standard paths.\033[0m",
+        "colorama_not_found": "Warning: colorama module not found. ANSI colors may not work properly.",
         # help info
         "appDescription": "Client for vpngate.net VPNs",
         "positional_arguments": "positional arguments",
@@ -89,7 +96,9 @@ translations = {
         "h_arg_expired_time": "Time to wait for a ServersList to be expired (hour).",
         "h_arg_min_speed": "Minimum download speed (MB/s).",
         "h_arg_qualified_time": "After a stable connection for a period of time, save the server information to the favorite configuration for the next priority load (minutes)",
-        "h_arg_sort_latency": "Sort available VPNs in ascending order",
+        "h_arg_sort_latency": "Sort the available VPN list by latency, specify the parameter --no-sort-latency to cancel the latency sorting.",
+        "h_arg_no_sort_latency": "Do not sort VPNs by latency.",
+        "h_arg_udp_latency": "Set default latency(ms) for UDP protocol VPNs (for sorting).",
     },
     "zh": {
         # info
@@ -153,12 +162,19 @@ translations = {
         "exiting": "\033[31m退出程序...\033[0m",
         # debug
         "probing_vpn": "正在探测 VPN 端点",
-        "cant_probe_udp": "无法探测 UDP 服务器",
+        "cant_probe_udp": "无法探测 UDP 服务器, 指定延迟为 %s ms, 以获取靠前排序",
         "vpn_not_responding": "VPN 端点未响应连接",
         "connection_failed": "连接失败",
         "vpn_listening": "VPN 正在监听，延迟 %s",
         # warning
-        "Speedtest failed or returned error. Monitoring connection before prompting.": "速度检测出错,继续检查状态文件",
+        "Speedtest failed or returned error. Monitoring connection before prompting.": "速度检测出错,继续检查状态文件二次确认",
+        # OpenVPN/环境相关
+        "openvpn_not_installed": "\033[31m未检测到 OpenVPN，请先安装 OpenVPN 或将其添加到系统 PATH。\033[0m",
+        "add_openvpn_path": "已将 %s 添加到 PATH 环境变量。",
+        "env_path_updated": "已在注册表中更新环境变量 PATH。",
+        "failed_update_registry": "注册表更新失败: %s",
+        "openvpn_not_found_standard": "\033[33m警告: 未在标准路径下发现 OpenVPN 安装。\033[0m",
+        "colorama_not_found": "警告: 未安装 colorama 模块，ANSI 颜色可能无法正常显示。",
         # 帮助信息
         "appDescription": "vpngate.net 的VPN客户端",
         # 'appUsage': '用法: vpngateclientcn.py [选项] [ovpnfile]',
@@ -179,7 +195,9 @@ translations = {
         "h_arg_expired_time": "等待服务器列表过期的时间, 单位: 小时。",
         "h_arg_min_speed": "最低下载速度, 单位: MB/s。",
         "h_arg_qualified_time": "稳定连接一段时间后,保存服务器信息到收藏配置以供下次优先加载,单位: 分钟",
-        "h_arg_sort_latency": "对可用VPN按延迟升序排序",
+        "h_arg_sort_latency": "对可用 VPN 列表进行延迟排序, 指定参数 --no-sort-latency 取消延迟排序",
+        "h_arg_no_sort_latency": "取消对可用 VPN 列表进行延迟排序",
+        "h_arg_udp_latency": "为 UDP 协议的 VPN 设置默认延迟（毫秒），用于排序",
     },
 }
 
@@ -202,4 +220,5 @@ def get_text(key, lang=None):
 
     if lang is None:
         lang = get_system_language()[:2]
-    return translations.get(lang, translations["en"]).get(key, translations["en"][key])
+    return translations.get(lang, translations["en"]).get(key, translations["en"][key]
+)

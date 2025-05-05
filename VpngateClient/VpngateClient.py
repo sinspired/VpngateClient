@@ -41,10 +41,11 @@ VPN_LIST_URL = "https://www.vpngate.net/api/iphone/"
 SPEED_TEST_URL = "http://ipv4.download.thinkbroadband.com/50MB.zip"
 # SPEED_TEST_URL = "https://cachefly.cachefly.net/50mb.test"
 LOCAL_CSV_NAME = "servers.csv"
-DEFAULT_EXPIRED_TIME = 1
+DEFAULT_EXPIRED_TIME = 0.15
 DEFAULT_MIN_SPEED = 0.00
+SET_UDP_LATENCY = 60
 DEFAULT_QUALIFIED_TIME = 5
-DEFAULT_VPN_TIMEOUT = 8 if is_windows else 5
+DEFAULT_VPN_TIMEOUT = 9 if is_windows else 4
 
 # The app running with temp\cahe\config DIRs,automatic with promission and exists
 APP_RUNNING_DIR = UserDataManager("VpngateClient")
@@ -105,6 +106,8 @@ class VPNClient:
         self.qualified_vpn_config_path = None
         self.qualified_vpn_csv_path = None
 
+        self.udp_latency = getattr(args, "udp_latency", SET_UDP_LATENCY)
+
         for line in self.config.splitlines():
             parts = line.split()
             if line.startswith("remote") and len(parts) == 3:
@@ -115,6 +118,7 @@ class VPNClient:
                     self.ip = remote_ip
                 elif remote_ip != self.ip:
                     self.log.warning(
+                        # 配置中的 remote IP 与提供的 IP 不一致，使用提供的 IP
                         f"Config remote IP '{remote_ip}' differs from provided IP '{self.ip}'. Using '{self.ip}'."
                     )
                 # Validate and set port
@@ -122,6 +126,7 @@ class VPNClient:
                     self.port = int(remote_port_str)
                 except ValueError:
                     self.log.warning(
+                        # 配置中的端口无效，跳过该行
                         f"Invalid port '{remote_port_str}' in config. Skipping line."
                     )
                     continue
@@ -131,6 +136,7 @@ class VPNClient:
                 _, self.proto = parts
                 if self.proto not in ["tcp", "udp"]:
                     self.log.warning(
+                        # 配置中的协议不支持，设为 None
                         f"Unsupported proto '{self.proto}' in config. Using 'None'."
                     )
                     self.proto = None  # Or default to one?
@@ -143,6 +149,7 @@ class VPNClient:
             # raise ValueError("Incomplete VPN endpoint information derived from config.")
 
         self.log.debug(
+            # 新 VPN 信息
             "New VPN: ip=%s, proto=%s port=%s country=%s (%s)",
             self.ip,
             self.proto,
@@ -168,10 +175,11 @@ class VPNClient:
             return False, float("inf")  # Return infinite latency if invalid
 
         if self.proto == "udp":
-            self.log.debug(get_text("cant_probe_udp"))
+            udp_latency = self.udp_latency
+            self.log.debug(get_text("cant_probe_udp"), udp_latency)
             return True, float(
-                "inf"
-            )  # UDP probing not implemented, return high latency
+                udp_latency
+            )  # UDP probing not implemented, return low latency, because UDP connect make better performance
 
         self.log.debug(get_text("probing_vpn"))
 
@@ -496,9 +504,9 @@ class VPNClient:
                 elapsed_time = time.time() - start_time
 
                 # Handle delayed prompt if needed
-                if require_delayed_prompt and elapsed_time > 10:
+                if require_delayed_prompt and elapsed_time > 15:
                     print()  # 新行
-                    print("\r连接保持 10 秒,也许可用.", end="\r")
+                    print("\r连接保持 10 秒,也许可用...", end="\r")
                     use_this_vpn = self.prompt_use_vpn()
                     require_delayed_prompt = False  # Prompt only once
                     if not use_this_vpn:
@@ -789,8 +797,8 @@ class VPNClient:
             str(self.args.vpn_timeout),  # Use arg if available
             # Ping settings for keepalive and detecting dead connections
             "--keepalive",
-            "5",
-            "30",  # Ping every 10s, assume dead after 60s silence
+            "1",
+            "15",  # Ping every 10s, assume dead after 60s silence
             # Use ping-exit/restart instead of keepalive if preferred (original code used them)
             # "--ping-exit", "60", # Exit after 60 seconds of ping timeout (was 3) - Increased
             # "--ping-restart", # Restart if ping fails for 180s (higher than exit) - Adjust if needed (was 3)
@@ -812,7 +820,7 @@ class VPNClient:
         # Authentication (if needed, e.g., --auth-user-pass pass.txt)
         # Add logic here if username/password auth is required
 
-        self.log.debug(f"Built OpenVPN command: {' '.join(command)}")
+        # self.log.debug(f"Built OpenVPN command: {' '.join(command)}")
         self.log.debug(f"Status file will be: {statusFile}")
         return command, statusFile
 
@@ -935,7 +943,7 @@ class VPNClient:
                 input_str = ""
                 for remaining in range(timeout, 0, -1):
                     print(
-                        f"\r{get_text('use_or_change')} \033[90m({remaining} 秒, 输入 n 跳过)\033[0m",
+                        f"\r{get_text('use_or_change')} \033[90m({remaining} 秒)\033[0m",
                         end="",
                         flush=True,
                     )
@@ -964,7 +972,7 @@ class VPNClient:
                     import select
 
                     print(
-                        f"\r{get_text('use_or_change')} \033[90m({timeout} 秒, 输入 n 跳过)\033[0m",
+                        f"\r{get_text('use_or_change')} \033[90m({timeout} 秒)\033[0m",
                         end="",
                         flush=True,
                     )
@@ -978,10 +986,8 @@ class VPNClient:
                         print("\r自动确认，进入连接监测模式. ", end="\r", flush=True)
                         return True
                 else:
-                    self.log.info(
-                        "Non-interactive session, assuming 'yes' for VPN prompt."
-                    )
-                    return True
+                        print("\r自动确认，进入连接监测模式. ", end="\r", flush=True)
+                        return True
 
         except KeyboardInterrupt:
             print()  # Newline after prompt
@@ -1402,7 +1408,7 @@ class VPNList:
                         f"Failed to read or process {qualified_vpn_csv}: {e}"
                     )
             else:
-                self.log.info(get_text("file_path_not_found"), qualified_vpn_csv)
+                self.log.debug(get_text("file_path_not_found"), qualified_vpn_csv)
         else:
             self.log.info(f"Configs directory not found: {CONFIG_DIR}")
 
@@ -1498,14 +1504,17 @@ class VPNList:
                 try:
                     is_responding, latency = future.result()
                     if is_responding:
+                        # 对于UDP协议，latency为udp_latency参数
                         responding_vpns.append((vpn, latency))
                 except Exception as e:
                     self.log.exception(f"Availability probe failed for a VPN: {e}")
 
-        # 根据命令行参数决定是否排序
-        if getattr(self.args, "sort_latency", False):
+        # 默认进行排序，除非显式指定 --no-sort-latency
+        if not getattr(self.args, "no_sort_latency", False):
             self.log.info(get_text("h_arg_sort_latency"))
             responding_vpns.sort(key=lambda x: x[1])  # Sort by latency (ascending)
+        else:
+            self.log.info(get_text("h_arg_no_sort_latency"))
 
         # Update the lists with sorted VPNs
         self.qualified_vpns = [
@@ -1728,13 +1737,11 @@ def isAdmin():
 def addOpenVPNtoSysPath():
     """Add OpenVPN binary path to system PATH environment variable."""
     if sys.platform == "win32":
-        # Windows paths
         openvpn_paths = [
             r"C:\Program Files\OpenVPN\bin",
             r"C:\Program Files (x86)\OpenVPN\bin",
         ]
     else:
-        # Linux/macOS paths
         openvpn_paths = [
             "/usr/sbin",
             "/usr/local/sbin",
@@ -1742,34 +1749,30 @@ def addOpenVPNtoSysPath():
             "/usr/local/bin",
         ]
 
-    # Get current PATH
     current_path = os.environ.get("PATH", "")
     path_separator = ";" if sys.platform == "win32" else ":"
     current_paths = current_path.split(path_separator)
 
     for openvpn_path in openvpn_paths:
         if os.path.exists(openvpn_path) and openvpn_path not in current_paths:
-            # Add OpenVPN path to PATH
             os.environ["PATH"] = f"{openvpn_path}{path_separator}{current_path}"
-            print(f"Added {openvpn_path} to PATH environment variable.")
+            print(get_text("add_openvpn_path") % openvpn_path)
 
-            # Persist PATH changes on Windows
             if sys.platform == "win32":
                 try:
                     import winreg
-
                     with winreg.OpenKey(
                         winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_SET_VALUE
                     ) as key:
                         winreg.SetValueEx(
                             key, "PATH", 0, winreg.REG_EXPAND_SZ, os.environ["PATH"]
                         )
-                    print("Environment PATH updated in Registry.")
+                    print(get_text("env_path_updated"))
                 except Exception as e:
-                    print(f"Failed to update Registry: {e}")
+                    print(get_text("failed_update_registry") % e)
             return True
 
-    print("\033[33mWarning: OpenVPN installation not found in standard paths.\033[0m")
+    print(get_text("openvpn_not_found_standard"))
     return False
 
 
@@ -1827,6 +1830,7 @@ def parse_args():
     )
     p.add_argument(
         "--vpn-timeout",
+        "-vt",
         action="store",
         default=DEFAULT_VPN_TIMEOUT,
         type=int,
@@ -1848,6 +1852,7 @@ def parse_args():
     )
     p.add_argument(
         "--expired-time",
+        "-et",
         action="store",
         default=DEFAULT_EXPIRED_TIME,
         type=int,
@@ -1855,6 +1860,7 @@ def parse_args():
     )
     p.add_argument(
         "--min-speed",
+        "-ms",
         action="store",
         default=DEFAULT_MIN_SPEED,
         type=float,
@@ -1869,10 +1875,18 @@ def parse_args():
         help=get_text("h_arg_qualified_time"),
     )
     p.add_argument(
-        "--sort-latency",
-        "-s",
+        "--no-sort-latency",
+        "-ns",
         action="store_true",
-        help="h_arg_sort_latency",
+        help=get_text("h_arg_no_sort_latency"),
+    )
+    p.add_argument(
+        "--udp-latency",
+        "-ul",
+        action="store",
+        default=SET_UDP_LATENCY,
+        type=int,
+        help=get_text("h_arg_udp_latency"),
     )
     # 覆盖默认的 help 信息
     p._positionals.title = get_text("positional_arguments")
@@ -1952,9 +1966,7 @@ def main():
     if not shutil.which("openvpn"):
         addOpenVPNtoSysPath()
         if not shutil.which("openvpn"):
-            print(
-                "\033[31mOpenVPN is not installed on this system or added in system PATH.\033[0m"
-            )
+            print(get_text("openvpn_not_installed"))
             exit(1)
 
     if not isAdmin() and is_windows:
@@ -1972,23 +1984,16 @@ def main():
     customLogger()
 
     if args.ovpnfile:
-        # Load a single VPN from the given file.
         return single_vpn_main(args)
     else:
-        # Load list and try them in order
         return vpn_list_main(args)
 
 
 if __name__ == "__main__":
     if is_windows:
-        # 支持 ansi 颜色
         try:
             import colorama  # type: ignore
-
             colorama.init()
         except ImportError:
-            print(
-                "Warning: colorama module not found. ANSI colors may not work properly."
-            )
-
+            print(get_text("colorama_not_found"))
     sys.exit(main())
