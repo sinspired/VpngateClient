@@ -232,7 +232,7 @@ class VPNClient:
         if not self.ip or not self.port or not self.proto:
             self.log.error(get_text("Cannot connect: Missing IP, Port, or Protocol."))
             return False
-        self.log.info(get_text("connecting_to_vpn"))
+        self.log.debug(get_text("connecting_to_vpn"))
 
         # --- Config File Setup ---
         config_file_path = os.path.join(
@@ -532,11 +532,14 @@ class VPNClient:
 
                 # Handle delayed prompt if needed
                 if require_delayed_prompt and elapsed_time > 15:
-                    print("\r连接保持 15 秒,也许可用...", end="\r")
+                    print(
+                        "\r连接保持 \033[32m15\033[0m 秒,也许可用...可以尝试手动打开网页进行确认",
+                        end="\r",
+                    )
                     use_this_vpn = self.prompt_use_vpn()
                     require_delayed_prompt = False  # Prompt only once
                     if not use_this_vpn:
-                        print("\033[33m" + get_text("next_vpn") + "\033[0m")
+                        print("\033[90m" + get_text("next_vpn") + "\033[0m")
                         # Terminate, cleanup, and return False from monitor
                         self.terminate_vpn(proc)
                         self._cleanup_temp_files(config_file_path, status_file_path)
@@ -602,7 +605,7 @@ class VPNClient:
                     if write_speed_mbps >= 0 and read_speed_mbps >= 0:
                         print(
                             f"\r \033[90m-\033[0m {get_text("connected")}: {format_elapsed_time(elapsed_time):>7s} \033[90m|\033[0m "
-                            f"{get_text("download")}: {format_download_data(download_data_mb):>4s} \033[90m|\033[0m "
+                            f"{get_text("download")}: {format_download_data(download_data_mb):>5s} \033[90m|\033[0m "
                             f"{get_text("down")}: {format_speed(write_speed_mbps):>11s} \033[90m|\033[0m "
                             f"{get_text("up")}: {format_speed(read_speed_mbps):>11s}",
                             end="",
@@ -848,6 +851,10 @@ class VPNClient:
             "1",  # Write status every 1 second
             "--status-version",
             "3",  # Use version 3 format (easier to parse)
+            "--reneg-sec",  # 延长重协商时间到 2 小时，减少意外清零的频率
+            "7200",
+            "--persist-key",  # 开启 persist 选项，避免重协商时断开 TUN/TAP
+            "--persist-tun",
         ]
 
         # Add config file
@@ -924,6 +931,7 @@ class VPNClient:
                             + (
                                 get_text("vpn_init_success")
                                 % (
+                                    self.country,
                                     self.country_code,
                                     self.ip,
                                     self.port,
@@ -936,7 +944,7 @@ class VPNClient:
                         # proc.stdout.close() # Reconsider closing stdout
                         for remaining in range(10, 0, -1):
                             print(
-                                f"\033[90m等待网络设置完成(\033[32m{remaining}\033[0m\033[90m)...\033[0m",
+                                f"\033[90m- 等待网络设置完成(\033[32m{remaining:>2}\033[0m\033[90m )\033[0m",
                                 end="\r",
                             )
                             time.sleep(1)  # 每秒更新倒计时
@@ -1015,7 +1023,11 @@ class VPNClient:
                             else:
                                 input_str += ch
                         time.sleep(0.05)
-                print("\r自动确认，进入连接监测模式. ", end="\r", flush=True)
+                print(
+                    "\r自动确认，进入连接监测模式.                                             ",
+                    end="\r",
+                    flush=True,
+                )
                 return True
             else:
                 if sys.stdin.isatty():
@@ -1033,7 +1045,11 @@ class VPNClient:
                             return False
                         return True
                     else:
-                        print("\r自动确认，进入连接监测模式. ", end="\r", flush=True)
+                        print(
+                            "\r自动确认，进入连接监测模式.                                             ",
+                            end="\r",
+                            flush=True,
+                        )
                         return True
                 else:
                     print("\r自动确认，进入连接监测模式. ", end="\r", flush=True)
@@ -1041,7 +1057,7 @@ class VPNClient:
 
         except KeyboardInterrupt:
             print()  # Newline after prompt
-            self.log.info("User interrupted prompt.")
+            self.log.debug("User interrupted prompt.")
             return False  # Treat interrupt as "no"
 
     def terminate_vpn(self, proc):
@@ -1729,7 +1745,7 @@ def _try_connect_from_list(
     for i, vpn in enumerate(vpn_list):
         current_overall_index = start_index + i + 1  # 1-based index
         print(
-            "\033[90m-----------------------------------------------------------------------+\33[0m"
+            "\033[90m----------------------------------------------------------------------+\33[0m"
         )
         # Display index within the current list and overall index
         if total_in_list != total_overall_count:
@@ -2035,7 +2051,8 @@ def customLogger():
 
     # 日志格式
     verbose_format = "%(asctime)s %(levelname)s \033[36m%(name)s\033[0m: \033[35m%(funcName)s\033[0m: %(message)s"
-    simple_format = "%(levelname)s:%(name)s %(message)s"
+    # simple_format = "%(levelname)s:%(name)s %(message)s"
+    simple_format = "- %(message)s"
 
     # 配置日志处理器和格式化器
     handler = logging.StreamHandler()
