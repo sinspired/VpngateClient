@@ -1033,24 +1033,25 @@ class VPNClient:
                 if sys.stdin.isatty():
                     import select
 
-                    print(
-                        f"\r{get_text('use_or_change')} \033[90m(\033[0m\033[32m{remaining}\033[0m \033[90m秒)\033[0m",
-                        end="",
-                        flush=True,
-                    )
-                    rlist, _, _ = select.select([sys.stdin], [], [], timeout)
-                    if rlist:
-                        response = sys.stdin.readline().strip().lower()
-                        if response in ["n", "no", "q", "quit"]:
-                            return False
-                        return True
-                    else:
+                    input_str = ""
+                    for remaining in range(timeout, 0, -1):
                         print(
-                            "\r自动确认，进入连接监测模式.                                             ",
-                            end="\r",
+                            f"\r{get_text('use_or_change')} \033[90m(\033[0m\033[32m{remaining}\033[0m \033[90m秒)\033[0m",
+                            end="",
                             flush=True,
                         )
-                        return True
+                        rlist, _, _ = select.select([sys.stdin], [], [], 1)
+                        if rlist:
+                            response = sys.stdin.readline().strip().lower()
+                            if response in ["n", "no", "q", "quit"]:
+                                return False
+                            return True
+                    print(
+                        "\r自动确认，进入连接监测模式.                                             ",
+                        end="\r",
+                        flush=True,
+                    )
+                    return True
                 else:
                     print("\r自动确认，进入连接监测模式. ", end="\r", flush=True)
                     return True
