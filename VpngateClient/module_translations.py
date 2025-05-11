@@ -215,7 +215,7 @@ translations = {
         "performing_speedtest": "\033[90m运行 VPN 连接速度测试，按 CTRL+C 终止测速.\033[0m",
         "speedtest_canceled": "下载速度测试取消!",
         "bad_download_speed": "下载速度不佳，尝试下一个服务器...",
-        "error_download_speed": "下载速度检测出错，尝试下一个服务器...",
+        "error_download_speed": "\033[31mvpn 检测出错，尝试下一个服务器...\033[0m",
         "next_vpn": "- 下一个VPN...",
         "use_or_change": "是否使用此 VPN ? ( 按任意键确认！ 按 \033[1mCTRL+C\033[0m 切换VPN！)",
         "User interrupted prompt": "切换下一个 VPN 服务器",
