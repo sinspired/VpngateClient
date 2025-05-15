@@ -14,6 +14,7 @@ import socket
 import ssl
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -61,29 +62,58 @@ EU_COUNTRIES = [
 ]
 
 
-def check_connectivity(timeout=5):
+def check_connectivity(timeout=DEFAULT_VPN_TIMEOUT):
     """
-    检查与 Google 及常用测速网站的连通性，只要有一个可达即返回 True。
+    并发检查与 Google 及常用测速网站的连通性，只要有一个可达即返回 True。
     """
     test_urls = [
         "https://www.google.com/generate_204",
         "https://www.gstatic.com/generate_204",
         "https://www.google.com",
         "https://www.x.com",
+        "https://www.youtube.com",
+        "https://www.facebook.com",
     ]
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
     }
-    for url in test_urls:
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+
+    result = {"ok": False}
+    # error_printed = [False]
+    threads = []
+
+    def try_url(url):
+        if result["ok"]:
+            return
         try:
             req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with urllib.request.urlopen(req, timeout=timeout, context=context) as resp:
                 if resp.status in (200, 204):
                     print(f"{url} 可连通")
-                    return True
+                    result["ok"] = True
         except Exception:
-            continue
-    return False
+            # 只打印一次错误，避免多线程下重复输出
+            # if not error_printed[0]:
+            #     print(f"{url} 不可连通: {e}")
+            #     error_printed[0] = True
+            pass
+            # 不要在多线程中调用 input() 或 get_text()
+
+    for url in test_urls:
+        t = threading.Thread(target=try_url, args=(url,))
+        t.daemon = True
+        threads.append(t)
+        t.start()
+
+    for t in threads:
+        t.join(timeout)
+        if result["ok"]:
+            break
+
+    return result["ok"]
 
 
 class VPNClient:
@@ -331,7 +361,7 @@ class VPNClient:
                 self._cleanup_temp_files(config_file_path, status_file_path)
                 return False
             else:
-                # Speed test or连通性检测通过
+                # Speed test或连通性检测通过
                 use_this_vpn = self.prompt_use_vpn()
                 if not use_this_vpn:
                     print("\033[33m" + get_text("next_vpn") + "\033[0m")
@@ -731,7 +761,10 @@ class VPNClient:
 
                 # 新增：15秒无数据变动时进行连通性检测
                 if no_data_seconds >= 15:
-                    print("\r\033[90m15秒无数据流动，正在检测VPN连通性...\033[0m", end='\r')
+                    print(
+                        "\r\033[90m15秒无数据流动，正在检测VPN连通性...\033[0m",
+                        end="\r",
+                    )
                     if not check_connectivity():
                         print("\033[31m\n- VPN连通性检测失败，判定VPN已断开。\033[0m")
                         self.terminate_vpn(proc)
@@ -740,7 +773,10 @@ class VPNClient:
                             self.clear_iptables_rules()
                         return False
                     else:
-                        print("\033[32m\r- VPN连通性检测通过，继续保持连接。\033[0m", end='\r')
+                        print(
+                            "\033[32m\r- VPN连通性检测通过，继续保持连接。\033[0m",
+                            end="\r",
+                        )
                         no_data_seconds = 0  # 连通性正常，重置计数器
                         no_change_counter = 0
 
@@ -1108,35 +1144,36 @@ class VPNClient:
 
     def vpncheck(self):
         """
-        Performs a speed test和连通性检测，只要有一个通过即视为VPN可用。
+        先进行连通性检测，通过后再测速。只要有一个通过即视为VPN可用。
 
         Returns:
             bool or str:
-                True if download speed >= min_speed or connectivity ok.
-                False if download speed < min_speed and connectivity fail.
+                True if connectivity ok or download speed >= min_speed.
+                False if both fail.
                 'error' if speedtest returns 9999 (indicating an error).
         """
-
         print("\r" + get_text("performing_speedtest"), end="\r")
 
         try:
-            download_speed_MBps = speedtest()  # 速度测试
-            if download_speed_MBps is not None and download_speed_MBps != "error":
-                if download_speed_MBps >= self.args.min_speed:
-                    return True
-                else:
-                    print(
-                        "\033[31m"
-                        + get_text("bad_download_speed")
-                        + f" ({download_speed_MBps:.2f} Mbps)"
-                        + "\033[0m"
-                    )
-                    return False
-            # 如果速度测试失败或速度不达标，尝试连通性检测
-            print("\033[90m正在进行连通性检测...\033[0m", end="\r")
+            # 先进行连通性检测
             if check_connectivity():
                 print("\033[32m连通性检测通过，VPN可用。\033[0m", end="\r")
-                return True
+                # 连通性通过后再测速
+                download_speed_MBps = speedtest()
+                if download_speed_MBps is not None and download_speed_MBps != "error":
+                    if download_speed_MBps >= self.args.min_speed:
+                        return True
+                    else:
+                        print(
+                            "\033[31m"
+                            + get_text("bad_download_speed")
+                            + f" ({download_speed_MBps:.2f} Mbps)"
+                            + "\033[0m"
+                        )
+                        return False
+                else:
+                    # 测速失败但连通性已通过，仍视为可用
+                    return True
             else:
                 print("\033[31m连通性检测失败，VPN不可用。\033[0m", end="\r")
                 return False
