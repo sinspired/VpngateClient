@@ -1293,8 +1293,10 @@ class VPNList:
             response = urllib.request.urlopen(req, timeout=5, context=context)
             # 如果状态码是200，表示代理URL可用
             return response.status == 200
-        except (urllib.error.URLError, urllib.error.HTTPError):
-            self.log.error(get_text("proxy_check_failed"), proxy_url)
+        except Exception:
+            self.log.error(
+                get_text("proxy_check_failed") , proxy_url
+            )
             return False
 
     # Returns the first available GitHub Proxy
