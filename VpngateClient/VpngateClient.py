@@ -1254,19 +1254,33 @@ def check_call_infallible(cmd):
 
 class VPNList:
     def __init__(self, args):
-        # 自动获取当前版本号
-        try:
-            import importlib.metadata
-
-            self.version = importlib.metadata.version("VpngateClient")
-        except Exception:
-            self.version = "unknown"
-
-        print(get_text("vpn_start_running") % self.version)
-
         self.args = args
         # Logging
         self.log = logging.getLogger(self.__class__.__name__)  # 自动获取类名
+
+        # 自动获取当前版本号
+        self.release_date = None
+        try:
+            # 优先从本地 version.py 获取
+            from VpngateClient.version import __version__, __release_date__  # type: ignore
+
+            self.version = __version__
+            if __release_date__:
+                self.release_date = __release_date__
+        except ImportError:
+            try:
+                import importlib.metadata
+
+                self.version = "v" + importlib.metadata.version("VpngateClient")
+            except Exception:
+                self.version = "unknown"
+
+        # 启动app
+        print(get_text("vpn_start_running") % self.version)
+
+        if self.release_date:
+            release_time = get_text("Released_at") + f" {self.release_date}"
+            self.log.debug(release_time)
 
         # Initialize separate lists
         self.qualified_vpns = []
