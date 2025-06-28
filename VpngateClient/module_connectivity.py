@@ -52,12 +52,21 @@ class ConnectivityChecker:
 
             # 添加替代 CA 或关闭校验调试用途（可选）
             # ctx.load_verify_locations(cafile="/path/to/custom-ca.pem")
+            # ctx.load_verify_locations(cafile="/home/sinspire/test.pem")
 
             ctx.check_hostname = True
             ctx.verify_mode = ssl.CERT_REQUIRED
 
             with urlopen(req, timeout=self.timeout, context=ctx) as resp:
-                self.logger.info(f"\u2713 {url} - {resp.getcode()}")
+                status = resp.getcode()
+                if "generate_204" in url:
+                    if status == 204:
+                        self.logger.info(f"\u2713 {url} - 204 No Content")
+                    else:
+                        self.logger.warning(f"\u2717 {url} - 非预期状态码: {status}")
+                        return False
+                else:
+                    self.logger.info(f"\u2713 {url} - {resp.getcode()}")
                 return True
 
         except HTTPError as e:

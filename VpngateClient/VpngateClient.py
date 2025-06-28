@@ -64,7 +64,7 @@ EU_COUNTRIES = [
 ]
 
 
-def check_connectivity(timeout=DEFAULT_VPN_TIMEOUT):
+def check_connectivity(timeout=5):
     """
     使用 module_connectivity.py 的 check_connectivity。
     """
@@ -1495,7 +1495,7 @@ class VPNList:
     def filter_by_country(self):
         """Filters both qualified and main VPN lists based on geographic information."""
         filters = []
-        # ... (keep the logic for building the filters list based on args.eu, args.us, args.country)
+        # building the filters list based on args.eu, args.us, args.country
         if self.args.eu:
             self.log.info(get_text("Including VPNs in Europe"))
             filters.append(
@@ -1510,6 +1510,20 @@ class VPNList:
             countries = set(map(str.upper, self.args.country))
             self.log.info(get_text("Including VPNs in %s") % countries)
             filters.append(lambda vpn: vpn.country_code in countries)
+
+        # building a default filter to exclude "CN" if no other filters are applied
+        exclude_countries = ["CN"]
+        excluded_vpns = [
+            vpn
+            for vpn in self.qualified_vpns + self.main_vpns
+            if vpn.country_code in exclude_countries
+        ]
+        if excluded_vpns:
+            self.log.debug("默认排除：")
+            for vpn in excluded_vpns:
+                self.log.debug(vpn)
+            self.log.info(get_text("default_filter"), len(excluded_vpns))
+            filters.append(lambda vpn: vpn.country_code not in exclude_countries)
 
         if filters:
             self.log.info(get_text("Applying geographic filters..."))
@@ -1531,20 +1545,6 @@ class VPNList:
                 get_text("Main list VPNs after geo filter: %s (from %s)")
                 % (len(self.main_vpns), orig_main_count)
             )
-        else:
-            # Add a default filter to exclude "CN" if no other filters are applied
-            exclude_countries = ["CN"]
-            excluded_vpns = [
-                vpn
-                for vpn in self.qualified_vpns + self.main_vpns
-                if vpn.country_code in exclude_countries
-            ]
-            if excluded_vpns:
-                self.log.debug("默认排除：")
-                for vpn in excluded_vpns:
-                    self.log.debug(vpn)
-                self.log.info(get_text("default_filter"), len(excluded_vpns))
-                filters.append(lambda vpn: vpn.country_code not in exclude_countries)
 
     def filter_unresponsive_vpns(self):
         """Probes VPN servers, measures latency, and removes unresponsive ones."""
