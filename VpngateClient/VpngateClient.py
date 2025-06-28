@@ -75,7 +75,9 @@ def check_connectivity(timeout=5):
         "https://www.youtube.com/",
         "https://www.tiktok.com/",
     ]
-    return module_check_connectivity(urls=urls, timeout=timeout, logger=logger)
+    return module_check_connectivity(
+        urls=urls, timeout=timeout, logger=logger, args=parse_args()
+    )
 
 
 class VPNClient:
@@ -823,17 +825,54 @@ class VPNClient:
             "--script-security",
             "2",
             # —— DNS 配置 ——
-            "--pull-filter", "ignore", "dhcp-option DNS 8.8.8.8",  # 忽略服务器的dns设置
-            "--dns", "server", "0", "address", "223.5.5.5:443", "223.6.6.6:443",
-            "--dns", "server", "0", "transport", "DoH",
-            "--dns", "server", "0", "sni", "dns.alidns.com",
-            "--dns", "server", "0", "dnssec", "optional",
-            "--dns", "server", "1", "address", "114.114.114.114:53",
-            "--dns", "server", "1", "transport", "plain",
-            "--dns", "server", "2", "address", "8.8.8.8:53",
-            "--dns", "server", "2", "transport", "plain",
+            "--pull-filter",
+            "ignore",
+            "dhcp-option DNS 8.8.8.8",  # 忽略服务器的dns设置
+            "--dns",
+            "server",
+            "0",
+            "address",
+            "223.5.5.5:443",
+            "223.6.6.6:443",
+            "--dns",
+            "server",
+            "0",
+            "transport",
+            "DoH",
+            "--dns",
+            "server",
+            "0",
+            "sni",
+            "dns.alidns.com",
+            "--dns",
+            "server",
+            "0",
+            "dnssec",
+            "optional",
+            "--dns",
+            "server",
+            "1",
+            "address",
+            "114.114.114.114:53",
+            "--dns",
+            "server",
+            "1",
+            "transport",
+            "plain",
+            "--dns",
+            "server",
+            "2",
+            "address",
+            "8.8.8.8:53",
+            "--dns",
+            "server",
+            "2",
+            "transport",
+            "plain",
             # —— 兼容旧脚本（可选）——
-            "--dhcp-option", "DNS", "114.114.114.114",
+            "--dhcp-option",
+            "DNS",
+            "114.114.114.114",
             # Retry/timeout settings (consider adjusting based on typical connection times)
             "--connect-retry-max",
             "4",  # Max connection attempts before failing
@@ -1215,7 +1254,16 @@ def check_call_infallible(cmd):
 
 class VPNList:
     def __init__(self, args):
-        print("\033[2J\033[H\033[32m" + get_text("vpn_start_running") + "\033[0m")
+        # 自动获取当前版本号
+        try:
+            import importlib.metadata
+
+            self.version = importlib.metadata.version("VpngateClient")
+        except Exception:
+            self.version = "unknown"
+
+        print(get_text("vpn_start_running") % self.version)
+
         self.args = args
         # Logging
         self.log = logging.getLogger(self.__class__.__name__)  # 自动获取类名
@@ -1615,12 +1663,13 @@ def speedtest():
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
     }
+    ctx = ssl.create_default_context()
 
     try:
         req = urllib.request.Request(url, headers=headers)
         start_time = time.perf_counter()
 
-        with urllib.request.urlopen(req, timeout=timeout) as response:
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as response:
             file_size = 0
             end_time = start_time + duration
 
@@ -1954,6 +2003,12 @@ def parse_args():
         type=int,
         help=get_text("h_arg_udp_latency"),
     )
+    p.add_argument(
+        "--only-check-tiktok",
+        "-tt",
+        action="store_true",
+        help=get_text("h_arg_only_check_tiktok"),
+    )
     p._positionals.title = get_text("positional_arguments")
     p._optionals.title = get_text("optional_arguments")
     p._defaults["help"] = get_text("h_help")
@@ -1962,11 +2017,6 @@ def parse_args():
 
 
 def customLogger():
-    args = parse_args()
-
-    def custom_time(*args):
-        return datetime.now().strftime("%I:%M%p")
-
     class LogColors:
         BLUE = "\033[34m"
         GREEN = "\033[32m"
@@ -1989,21 +2039,23 @@ def customLogger():
             )
             return super().format(record)
 
+    args = parse_args()
     verbose_format = "%(asctime)s %(levelname)s \033[36m%(name)s\033[0m: \033[35m%(funcName)s\033[0m: %(message)s"
-    simple_format = "- %(message)s"
+    # simple_format = "\033[90m%(asctime)s\033[0m - %(message)s"
+    run_format = "- %(message)s"
+    datefmt = "%H:%M:%S"  # 示例: "14:30:15"
 
     handler = logging.StreamHandler()
+    logger = logging.getLogger()
+    logger.handlers = []
 
     if args.verbose:
-        handler.setFormatter(ColoredFormatter(verbose_format, datefmt="%I:%M%p"))
-        logger = logging.getLogger()
+        handler.setFormatter(ColoredFormatter(verbose_format, datefmt=datefmt))
         logger.setLevel(logging.DEBUG)
     else:
-        handler.setFormatter(logging.Formatter(simple_format))
-        logger = logging.getLogger()
+        handler.setFormatter(ColoredFormatter(run_format, datefmt=datefmt))
         logger.setLevel(logging.INFO)
 
-    logger.handlers = []
     logger.addHandler(handler)
 
 
@@ -2018,6 +2070,9 @@ def resource_path(relative_path):
 
 def main():
     args = parse_args()
+
+    # 定义日志格式
+    customLogger()
 
     if not shutil.which("openvpn"):
         addOpenVPNtoSysPath()
@@ -2043,9 +2098,6 @@ def main():
 
 
 if __name__ == "__main__":
-    # 定义日志格式
-    customLogger()
-
     # Windows平台需要初始化colorama，支持终端颜色输出
     if is_windows:
         try:

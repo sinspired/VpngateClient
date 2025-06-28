@@ -66,11 +66,14 @@ class ConnectivityChecker:
                         self.logger.warning(f"\u2717 {url} - 非预期状态码: {status}")
                         return False
                 else:
+                    if status != 200:
+                        self.logger.warning(f"\u2717 {url} - 非200状态码: {status}")
+                        return False
                     self.logger.info(f"\u2713 {url} - {resp.getcode()}")
                 return True
 
         except HTTPError as e:
-            self.logger.debug(f"\u2713 {url} - HTTP {e.code} (连通)")
+            self.logger.info(f"\u2713 {url} - HTTP {e.code} (连通)")
             return True
 
         except (URLError, ssl.SSLError) as e:
@@ -78,7 +81,7 @@ class ConnectivityChecker:
                 self.logger.warning(f"\u2717 {url} - 致命SSL错误: {e}")
                 return False
             if self._is_ssl_related_error(e):
-                self.logger.debug(f"\u2713 {url} - SSL错误但连通: {e}")
+                self.logger.info(f"\u2713 {url} - SSL错误但连通: {e}")
                 return True
             self.logger.warning(f"\u2717 {url} - 底层错误: {type(e).__name__}: {e}")
             return False
@@ -103,13 +106,19 @@ class ConnectivityChecker:
         return results
 
 
-def check_connectivity(urls=None, timeout=DEFAULT_TIMEOUT, logger=None):
+def check_connectivity(urls=None, timeout=DEFAULT_TIMEOUT, logger=None, args=None):
     if urls is None:
         urls = [
             "https://www.gstatic.com/generate_204",
             "https://www.google.com/generate_204",
             "https://www.whatsapp.com/",
             "https://www.github.com/",
+        ]
+    if args.only_check_tiktok:
+        logger.info("仅检查 TikTok 连通性")
+        urls = [
+            "https://www.tiktok.com/",
+            "https://www.gstatic.com/generate_204",
         ]
     checker = ConnectivityChecker(urls, timeout, logger)
     results = checker.check_all()
@@ -129,6 +138,7 @@ def main():
         "https://www.facebook.com/",
         "https://www.youtube.com/",
         "https://www.google.com/",
+        "https://www.tiktok.com/"
     ]
 
     checker = ConnectivityChecker(urls)
