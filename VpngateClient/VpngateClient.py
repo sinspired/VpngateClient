@@ -14,7 +14,6 @@ import socket
 import ssl
 import subprocess
 import sys
-import threading
 import time
 import urllib.error
 import urllib.request
@@ -23,11 +22,13 @@ from datetime import datetime, timedelta
 # 本地模块导入
 if __name__ == "__main__":
     # 绝对导入用于脚本运行
+    from module_connectivity import check_connectivity as module_check_connectivity
     from module_firewall import FirewallManager, IPv4_COMMANDS, IPv6_COMMANDS
     from module_translations import get_text
     from user_data_manager import UserDataManager
 else:
     # 相对导入用于模块导入
+    from .module_connectivity import check_connectivity as module_check_connectivity
     from .module_firewall import FirewallManager, IPv4_COMMANDS, IPv6_COMMANDS
     from .module_translations import get_text
     from .user_data_manager import UserDataManager
@@ -39,8 +40,9 @@ is_windows = platform.system() == "Windows"
 
 # The URL for the VPN list
 VPN_LIST_URL = "https://www.vpngate.net/api/iphone/"
-SPEED_TEST_URL = "http://ipv4.download.thinkbroadband.com/50MB.zip"
+# SPEED_TEST_URL = "http://ipv4.download.thinkbroadband.com/50MB.zip"
 # SPEED_TEST_URL = "https://cachefly.cachefly.net/50mb.test"
+SPEED_TEST_URL = "https://github.com/VSCodium/vscodium-insiders/releases/download/1.101.03607-insider/VSCodium-linux-x64-1.101.03607-insider.tar.gz"
 LOCAL_CSV_NAME = "servers.csv"
 DEFAULT_EXPIRED_TIME = 0.15  # hours
 DEFAULT_MIN_SPEED = 0.00  # MB/s
@@ -64,56 +66,16 @@ EU_COUNTRIES = [
 
 def check_connectivity(timeout=DEFAULT_VPN_TIMEOUT):
     """
-    并发检查与 Google 及常用测速网站的连通性，只要有一个可达即返回 True。
+    使用 module_connectivity.py 的 check_connectivity。
     """
-    test_urls = [
+    urls = [
+        # "https://www.gstatic.com/generate_204",
         "https://www.google.com/generate_204",
-        "https://www.gstatic.com/generate_204",
-        "https://www.google.com",
-        "https://www.x.com",
-        "https://www.youtube.com",
-        "https://www.facebook.com",
+        # "https://www.whatsapp.com/",
+        "https://www.youtube.com/",
+        "https://www.tiktok.com/",
     ]
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-    }
-    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE
-
-    result = {"ok": False}
-    # error_printed = [False]
-    threads = []
-
-    def try_url(url):
-        if result["ok"]:
-            return
-        try:
-            req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=timeout, context=context) as resp:
-                if resp.status in (200, 204):
-                    print(f"{url} 可连通")
-                    result["ok"] = True
-        except Exception:
-            # 只打印一次错误，避免多线程下重复输出
-            # if not error_printed[0]:
-            #     print(f"{url} 不可连通: {e}")
-            #     error_printed[0] = True
-            pass
-            # 不要在多线程中调用 input() 或 get_text()
-
-    for url in test_urls:
-        t = threading.Thread(target=try_url, args=(url,))
-        t.daemon = True
-        threads.append(t)
-        t.start()
-
-    for t in threads:
-        t.join(timeout)
-        if result["ok"]:
-            break
-
-    return result["ok"]
+    return module_check_connectivity(urls=urls, timeout=timeout, logger=logger)
 
 
 class VPNClient:
@@ -306,7 +268,7 @@ class VPNClient:
                 conf_file.write("remote-cert-tls server\n")
                 conf_file.write("disable-dco\n")
 
-                conf_file.write("tls-version-min 1.2\n")  # 推荐最低TLS1.2
+                conf_file.write("tls-version-min 1.0\n")  # 推荐最低TLS1.2
                 # Ensure buffer is written
                 conf_file.flush()
                 # File closed automatically by 'with' statement
@@ -555,7 +517,7 @@ class VPNClient:
         previous_stats = None
         no_change_counter = 0
         monitor_interval = (
-            1  # Sync with status file update interval (set to 1s in build_ovpn_command)
+            2  # Sync with status file update interval (set to 1s in build_ovpn_command)
         )
         max_retries = (
             15  # Number of intervals with no change before declaring disconnect
@@ -860,6 +822,18 @@ class VPNClient:
             "4",  # Verb 3 is usually sufficient, 4 is debug level
             "--script-security",
             "2",
+            # —— DNS 配置 ——
+            "--pull-filter", "ignore", "dhcp-option DNS 8.8.8.8",  # 忽略服务器的dns设置
+            "--dns", "server", "0", "address", "223.5.5.5:443", "223.6.6.6:443",
+            "--dns", "server", "0", "transport", "DoH",
+            "--dns", "server", "0", "sni", "dns.alidns.com",
+            "--dns", "server", "0", "dnssec", "optional",
+            "--dns", "server", "1", "address", "114.114.114.114:53",
+            "--dns", "server", "1", "transport", "plain",
+            "--dns", "server", "2", "address", "8.8.8.8:53",
+            "--dns", "server", "2", "transport", "plain",
+            # —— 兼容旧脚本（可选）——
+            "--dhcp-option", "DNS", "114.114.114.114",
             # Retry/timeout settings (consider adjusting based on typical connection times)
             "--connect-retry-max",
             "4",  # Max connection attempts before failing
@@ -898,7 +872,8 @@ class VPNClient:
                 return_code = proc.poll()
                 if return_code is not None:
                     self.log.error(
-                        get_text("vpn_init_failed")
+                        "\033[32m"
+                        + get_text("vpn_init_failed")
                         + get_text(" - Process exited with code %s") % return_code
                     )
                     # Read stderr for more details
@@ -906,6 +881,7 @@ class VPNClient:
                     if stderr_output:
                         self.log.error(
                             get_text("OpenVPN stderr:\n%s") % stderr_output.strip()
+                            + "\033[0m"
                         )
                     else:
                         # If stderr is empty, check stdout
@@ -913,6 +889,7 @@ class VPNClient:
                         if stdout_output:
                             self.log.error(
                                 get_text("OpenVPN stdout:\n%s") % stdout_output.strip()
+                                + "\033[0m"
                             )
                     return False
 
@@ -1152,13 +1129,14 @@ class VPNClient:
                 False if both fail.
                 'error' if speedtest returns 9999 (indicating an error).
         """
-        print("\r" + get_text("performing_speedtest"), end="\r")
 
         try:
             # 先进行连通性检测
+            print("\r" + get_text("performing_connect_test"), end="\r")
             if check_connectivity():
                 print("\033[32m连通性检测通过，VPN可用。\033[0m", end="\r")
                 # 连通性通过后再测速
+                print("\r" + get_text("performing_speedtest"), end="\r")
                 download_speed_MBps = speedtest()
                 if download_speed_MBps is not None and download_speed_MBps != "error":
                     if download_speed_MBps >= self.args.min_speed:
@@ -1182,7 +1160,7 @@ class VPNClient:
             return "error"
         except Exception as e:
             self.log.exception(f"Error during speedtest execution: {e}")
-            print("\033[31m" + "速度测试期间发生错误。" + "\033[0m")
+            print("\033[31m" + "VPN 可用性检测期间发生错误。" + "\033[0m")
             return "error"
 
     def setup_iptables_rules(self):
@@ -1294,9 +1272,7 @@ class VPNList:
             # 如果状态码是200，表示代理URL可用
             return response.status == 200
         except Exception:
-            self.log.error(
-                get_text("proxy_check_failed") , proxy_url
-            )
+            self.log.error(get_text("proxy_check_failed"), proxy_url)
             return False
 
     # Returns the first available GitHub Proxy
@@ -1557,11 +1533,18 @@ class VPNList:
             )
         else:
             # Add a default filter to exclude "CN" if no other filters are applied
-            CN_servers = []
-            CN_servers.append(lambda vpn: vpn.country_code != "CN")
-
-            self.log.info(get_text("default_filter"), len(CN_servers))
-            filters.append(lambda vpn: vpn.country_code != "CN")
+            exclude_countries = ["CN"]
+            excluded_vpns = [
+                vpn
+                for vpn in self.qualified_vpns + self.main_vpns
+                if vpn.country_code in exclude_countries
+            ]
+            if excluded_vpns:
+                self.log.debug("默认排除：")
+                for vpn in excluded_vpns:
+                    self.log.debug(vpn)
+                self.log.info(get_text("default_filter"), len(excluded_vpns))
+                filters.append(lambda vpn: vpn.country_code not in exclude_countries)
 
     def filter_unresponsive_vpns(self):
         """Probes VPN servers, measures latency, and removes unresponsive ones."""
@@ -2053,8 +2036,6 @@ def main():
             print(get_text("privileges_check"))
             return 1
 
-    customLogger()
-
     if args.ovpnfile:
         return single_vpn_main(args)
     else:
@@ -2062,6 +2043,10 @@ def main():
 
 
 if __name__ == "__main__":
+    # 定义日志格式
+    customLogger()
+
+    # Windows平台需要初始化colorama，支持终端颜色输出
     if is_windows:
         try:
             import colorama  # type: ignore
